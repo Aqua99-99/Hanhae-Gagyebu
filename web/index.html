@@ -10,7 +10,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="config.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.81.1"></script>
 <script>try{var t=localStorage.getItem('gagyebu.theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
 <style>
 :root{
@@ -756,7 +756,8 @@ function writeDoc(docId,data){
     try{await w();setSync('저장됨')}
     catch(e){
       if(e&&e.code==='unavailable')setTimeout(()=>w().then(()=>setSync('저장됨')).catch(()=>{delete savedJSON[docId];setSync('이 기기에 저장됨')}),800+Math.random()*800);
-      else{delete savedJSON[docId];setSync('이 기기에 저장됨')}
+      else{delete savedJSON[docId];setSync('이 기기에 저장됨');
+        if(e&&e.code==='limit'&&!writeDoc._warned){writeDoc._warned=true;toast('저장 공간 한도를 넘어서 서버에 저장하지 못했어요. 오래된 기록을 백업 후 정리해 주세요.')}}
     }
   },400);
 }
@@ -795,7 +796,7 @@ function makeDB(userId){
     async get(){const {data,error}=await sb.from('docs').select('data').eq('user_id',userId).eq('doc_id',docId).maybeSingle();
       if(error)throw Object.assign(new Error('db'),{code:'unavailable'});return {exists:!!data,data:()=>data?data.data:undefined}},
     async set(obj){const {error}=await sb.from('docs').upsert({user_id:userId,doc_id:docId,data:obj,updated_at:new Date().toISOString()},{onConflict:'user_id,doc_id'});
-      if(error)throw Object.assign(new Error('db'),{code:'unavailable'})},
+      if(error)throw Object.assign(new Error('db'),{code:/limit reached/.test(error.message||'')?'limit':'unavailable'})},
     async delete(){const {error}=await sb.from('docs').delete().eq('user_id',userId).eq('doc_id',docId);if(error)throw error}
   }}};
 }
@@ -2050,7 +2051,7 @@ $('restoreFile').addEventListener('change',async e=>{
 function loadXLSX(){
   if(window.XLSX)return Promise.resolve(window.XLSX);
   return new Promise((res,rej)=>{const sc=document.createElement('script');
-    sc.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    sc.src='https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js';
     sc.onload=()=>res(window.XLSX);sc.onerror=()=>rej(new Error('load'));document.head.appendChild(sc)});
 }
 async function exportXlsx(){
@@ -2288,7 +2289,7 @@ async function logout(){
   location.reload();
 }
 async function deleteAccount(){
-  const {error}=await sb.functions.invoke('delete-account',{body:{}});
+  const {error}=await sb.rpc('delete_my_account');
   if(error){toast('계정을 삭제하지 못했어요. 잠시 후 다시 시도해 주세요.');return}
   try{localStorage.removeItem(LS2)}catch(e){}
   await sb.auth.signOut().catch(()=>{});
