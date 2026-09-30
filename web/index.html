@@ -108,8 +108,8 @@ main.board{min-width:0}
 .p-back:hover{color:var(--ink)}
 .p-total{font-size:28px;font-weight:700;letter-spacing:-.02em;margin:2px 0}
 .p-note{color:var(--muted);font-size:13px;margin:0 0 16px}
-.ysum{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:6px 0 18px;font-size:14px}
-.ysum dt{color:var(--muted)} .ysum dd{margin:0;text-align:right;font-weight:600}
+.ysum{display:grid;grid-template-columns:auto 1fr;gap:4px 0;margin:6px 0 18px;font-size:14px}
+.ysum dt{color:var(--muted)} .ysum dd{margin:0;text-align:right;font-weight:600;padding-left:12px}
 .ysum .bal{border-top:1px solid var(--line);padding-top:6px;margin-top:2px}
 .sec-title{font-size:13px;color:var(--muted);margin:0 0 2px;font-weight:500}
 .bars{width:100%;height:auto;display:block;margin-bottom:12px}
@@ -375,6 +375,41 @@ dialog.wide{width:min(960px,calc(100% - 24px))}
   .cgrid{gap:3px}
 }
 @media (prefers-reduced-motion:reduce){ .seg{transition:none} }
+
+/* ---------- 모바일 다듬기 ---------- */
+.menu-back{display:none}
+.dvs{display:none}
+.actions-row{display:flex;gap:12px;align-items:center}
+@media (max-width:820px){
+  #ledgerView header.top{display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:center}
+  #ledgerView header.top .backtop{grid-column:1/-1}
+  #ledgerView header.top h1{grid-column:1/-1;margin:-2px 0 2px;font-size:21px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #ledgerView header.top .spacer,#ledgerView header.top .sync{display:none}
+  #ledgerView .type-seg{display:flex}
+  #ledgerView .type-seg button{flex:1;padding:8px 6px}
+  .actions-row{grid-column:1/-1;display:flex;gap:8px;align-items:stretch}
+  .actions-row>*{flex:1}
+  .actions-row .btn-ghost,.actions-row .btn-add,.actions-row .menu-wrap>.btn-ghost{width:100%;padding:11px 8px}
+  .actions-row .theme-btn{flex:0 0 44px;width:44px;height:auto;display:inline-flex}
+  /* 도구 메뉴: 화면 아래에서 올라오는 시트 */
+  .menu{position:fixed;left:10px;right:10px;top:auto;bottom:calc(env(safe-area-inset-bottom,0px) + 10px);min-width:0;max-height:75vh;overflow:auto;border-radius:16px;padding:8px;z-index:50;box-shadow:0 -10px 40px rgba(0,0,0,.35)}
+  .menu button{padding:13px 14px;font-size:15px}
+  .menu-back{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:49;display:block}
+  .menu-back[hidden]{display:none}
+  /* 캘린더 머리 */
+  .cal{padding:12px}
+  .cal-h h2{font-size:16px}
+  .cal-sum{width:100%;margin-left:0;justify-content:space-between;font-size:13px;gap:8px}
+  .cs-sep{display:none}
+  .cd .dv{white-space:nowrap;font-size:10.5px;letter-spacing:-.02em}
+  .dvf{display:none}.dvs{display:inline}
+  /* 가계부 목록 머리 */
+  #home header.top .me{display:none}
+  #home header.top h1{width:auto;flex:1}
+  #home header.top .sync{display:none}
+  .quick{padding:8px}
+  .qrow .btn-add{padding:10px 14px}
+}
 </style>
 </head>
 <body>
@@ -415,11 +450,12 @@ dialog.wide{width:min(960px,calc(100% - 24px))}
       <span id="yLabel"></span>
       <button id="yNext" aria-label="다음 연도">›</button>
     </div>
-    <div class="seg2" id="typeSeg" role="group" aria-label="수입 지출 보기">
+    <div class="seg2 type-seg" id="typeSeg" role="group" aria-label="수입 지출 보기">
       <button data-type="all">전체</button><button data-type="out">지출</button><button data-type="in">수입</button>
     </div>
     <div class="spacer"></div>
     <span class="sync"></span>
+    <div class="actions-row">
     <button class="theme-btn" data-act="theme" aria-label="화이트·블랙 모드 바꾸기"></button>
     <button class="btn-ghost" data-act="search">검색</button>
     <div class="menu-wrap">
@@ -439,11 +475,13 @@ dialog.wide{width:min(960px,calc(100% - 24px))}
       </div>
     </div>
     <button class="btn-add" data-act="add">+ 기록</button>
+    </div>
+    <div class="menu-back" id="menuBack" hidden></div>
   </header>
 
   <section class="quick" aria-label="말로 입력">
     <form id="qForm" class="qrow" autocomplete="off">
-      <input class="inp" id="qText" placeholder="말하듯 적어보세요 · 예: 어제 스타벅스 5600원 카드로, 25일 월급 320만원 들어옴">
+      <input class="inp" id="qText" placeholder="예: 어제 스타벅스 5600원 카드로">
       <button class="btn-add" type="submit">입력</button>
     </form>
     <div id="qOut"></div>
@@ -1043,8 +1081,8 @@ function renderCal(list){
     const heat=gain?Math.round(10+(b.in-b.out)/maxGain*26):(b.out?Math.round(6+b.out/maxOut*30):0);
     cells+=`<button class="cd${S.day===d?' sel':''}${isThisMonth&&now.getDate()===d?' today':''}${dow===0?' sun':dow===6?' sat':''}" data-day="${d}" ${heat?`style="--heat:${heat}%;--heatc:var(${gain?'--in':'--out'})"`:''} aria-label="${m+1}월 ${d}일${has?` 수입 ${won(b.in)} 지출 ${won(b.out)}`:' 기록 없음'}">
       <span class="dn">${d}</span>
-      ${b.in?`<span class="dv pos">${won(b.in)}</span>`:''}
-      ${b.out?`<span class="dv neg">${won(b.out)}</span>`:''}
+      ${b.in?`<span class="dv pos"><span class="dvf">${won(b.in)}</span><span class="dvs">${compact(b.in)}</span></span>`:''}
+      ${b.out?`<span class="dv neg"><span class="dvf">${won(b.out)}</span><span class="dvs">${compact(b.out)}</span></span>`:''}
     </button>`;
   }
   const mIn=byDay.reduce((a,b)=>a+b.in,0),mOut=byDay.reduce((a,b)=>a+b.out,0);
@@ -1220,10 +1258,10 @@ document.addEventListener('click',e=>{
 });
 document.addEventListener('click',e=>{
   const tb=e.target.closest('#toolBtn'),m=$('toolMenu');
-  if(tb){const open=m.hidden;m.hidden=!open;tb.setAttribute('aria-expanded',String(open));return}
-  if(!m.hidden){m.hidden=true;$('toolBtn').setAttribute('aria-expanded','false')}
+  if(tb){const open=m.hidden;m.hidden=!open;$('menuBack').hidden=!open;tb.setAttribute('aria-expanded',String(open));return}
+  if(!m.hidden){m.hidden=true;$('menuBack').hidden=true;$('toolBtn').setAttribute('aria-expanded','false')}
 },true);
-document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('toolMenu').hidden){$('toolMenu').hidden=true;$('toolBtn').setAttribute('aria-expanded','false')}});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('toolMenu').hidden){$('toolMenu').hidden=true;$('menuBack').hidden=true;$('toolBtn').setAttribute('aria-expanded','false')}});
 document.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.matches&&e.target.matches('[data-edit]')){openEdit(e.target.dataset.edit)}});
 $('yPrev').onclick=()=>{S.year--;S.day=null;render()};
 $('yNext').onclick=()=>{S.year++;S.day=null;render()};
