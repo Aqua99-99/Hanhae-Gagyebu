@@ -2269,17 +2269,23 @@ async function startApp(user){
   show('home');renderHome();
   await connect(user);
 }
-async function logout(){
+function clearAuthStorage(){
   try{localStorage.removeItem(LS2)}catch(e){}
-  await sb.auth.signOut().catch(()=>{});
-  location.reload();
+  try{Object.keys(localStorage).filter(k=>k.startsWith('sb-')).forEach(k=>localStorage.removeItem(k))}catch(e){}
+  try{Object.keys(sessionStorage).filter(k=>k.startsWith('sb-')).forEach(k=>sessionStorage.removeItem(k))}catch(e){}
+}
+async function logout(){
+  // 이 기기의 로그인만 확실히 끊어요. 네트워크가 불안정해도 로그아웃되도록 서버 응답을 기다리지 않아요.
+  try{await Promise.race([sb.auth.signOut({scope:'local'}),new Promise(r=>setTimeout(r,1500))])}catch(e){}
+  clearAuthStorage();
+  location.replace(location.origin+location.pathname);
 }
 async function deleteAccount(){
   const {error}=await sb.rpc('delete_my_account');
   if(error){toast('계정을 삭제하지 못했어요. 잠시 후 다시 시도해 주세요.');return}
-  try{localStorage.removeItem(LS2)}catch(e){}
-  await sb.auth.signOut().catch(()=>{});
-  alert('계정과 모든 데이터가 삭제됐어요.');location.reload();
+  try{await Promise.race([sb.auth.signOut({scope:'local'}),new Promise(r=>setTimeout(r,1500))])}catch(e){}
+  clearAuthStorage();
+  alert('계정과 모든 데이터가 삭제됐어요.');location.replace(location.origin+location.pathname);
 }
 async function boot(){
   paintThemeBtns();
