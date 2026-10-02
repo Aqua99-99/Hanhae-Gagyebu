@@ -1962,3 +1962,6 @@ $('rcFile').addEventListener('change',async e=>{
     renderQ(err&&err.message==='load'?'글자 인식 도구를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.':'영수증을 읽지 못했어요. 다른 사진으로 다시 시도해 주세요.');
   }finally{rcBusy=false;rcScheduleTerminate()}
 });
+
+// 다른 탭으로 가면 첫 화면 배경 움직임을 멈춰서 배터리를 아껴요
+document.addEventListener('visibilitychange',()=>document.documentElement.classList.toggle('is-hidden',document.visibilityState!=='visible'));
