@@ -1,3 +1,9 @@
+const UA=navigator.userAgent||'';
+const IS_KAKAO=/KAKAOTALK/i.test(UA);
+const IS_ANDROID=/Android/i.test(UA);
+const INAPP=IS_KAKAO||/NAVER\(inapp|Instagram|FBAN|FBAV|FB_IAB|Line\/|DaumApps|everytimeApp|BAND\/|; wv\)/i.test(UA);
+const APP_NAME=IS_KAKAO?'카카오톡':/Instagram/i.test(UA)?'인스타그램':/NAVER/i.test(UA)?'네이버 앱':/FBAN|FBAV|FB_IAB/i.test(UA)?'페이스북':/Line\//i.test(UA)?'라인':/BAND\//i.test(UA)?'밴드':'이 앱';
+
 /* ---------- 화이트·블랙 모드 ---------- */
 const THEME_KEY='gagyebu.theme';
 function currentTheme(){const t=document.documentElement.getAttribute('data-theme');if(t)return t;return window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'}
@@ -1614,6 +1620,7 @@ let sb=null,ME=null;
 function show(id){['auth','home','ledgerView'].forEach(x=>$(x).hidden=x!==id)}
 function authUI(){show('auth');$('auErr').textContent='';renderLandingRings();window.scrollTo(0,0)}
 async function googleLogin(btn){
+  if(INAPP){showInapp(true);return}
   $('auErr').textContent='';document.querySelectorAll('.js-google').forEach(b=>b.disabled=true);
   const {error}=await sb.auth.signInWithOAuth({provider:'google',options:{redirectTo:location.origin+location.pathname}});
   if(error){document.querySelectorAll('.js-google').forEach(b=>b.disabled=false);$('auErr').textContent='구글 로그인을 시작하지 못했어요. 잠시 후 다시 시도해 주세요.'}
@@ -1709,7 +1716,7 @@ const isIOS=()=>/iphone|ipad|ipod/i.test(navigator.userAgent)||(navigator.platfo
 let deferredInstall=null;
 function installDismissed(){try{return localStorage.getItem('gagyebu.installHide')==='1'}catch(e){return false}}
 function showInstall(mode){
-  if(isStandalone()||installDismissed())return;
+  if(isStandalone()||installDismissed()||INAPP)return;
   const box=$('installBox');if(!box)return;paintMarks();
   if(mode==='ios'){$('installMsg').textContent='Safari 아래 공유 버튼 → "홈 화면에 추가"를 누르면 앱처럼 쓸 수 있어요.';$('installBtn').hidden=true}
   else{$('installMsg').textContent='홈 화면에 추가하면 주소창 없이 앱처럼 열려요.';$('installBtn').hidden=false}
@@ -1726,3 +1733,34 @@ if(isIOS()&&!isStandalone())showInstall('ios');
 if('serviceWorker' in navigator&&location.protocol==='https:'){
   window.addEventListener('load',()=>navigator.serviceWorker.register('/sw.js').catch(()=>{}));
 }
+
+/* ---------- 카카오톡 등 앱 안 브라우저 안내 ----------
+   구글은 앱 안의 웹 화면에서 로그인을 막고, 이 화면에서는 앱 설치도 안 돼요. */
+function cleanUrl(){return location.origin+location.pathname}
+function openExternal(){
+  const url=cleanUrl();
+  if(IS_KAKAO){location.href='kakaotalk://web/openExternal?url='+encodeURIComponent(url);return}
+  if(IS_ANDROID){location.href='intent://'+url.replace(/^https?:\/\//,'')+'#Intent;scheme=https;package=com.android.chrome;end';return}
+  copyLink(true);
+}
+async function copyLink(forIOS){
+  const url=cleanUrl();let ok=false;
+  try{await navigator.clipboard.writeText(url);ok=true}catch(e){
+    try{const t=document.createElement('textarea');t.value=url;t.setAttribute('readonly','');t.style.position='fixed';t.style.opacity='0';document.body.appendChild(t);t.select();ok=document.execCommand('copy');t.remove()}catch(e2){}
+  }
+  toast(ok?(forIOS?'주소를 복사했어요. Safari를 열고 주소창에 붙여넣어 주세요.':'주소를 복사했어요.'):'복사하지 못했어요. 주소창의 주소를 직접 복사해 주세요.');
+}
+function showInapp(focus){
+  const bar=$('inappBar');if(!bar)return;
+  $('inappTitle').textContent=`${APP_NAME} 밖에서 열어주세요`;
+  $('inappMsg').textContent=IS_KAKAO||IS_ANDROID
+    ?`${APP_NAME} 안의 화면에서는 구글 로그인과 앱 설치가 막혀 있어요. 아래 버튼을 누르면 ${IS_ANDROID&&!IS_KAKAO?'크롬':'기본 브라우저'}으로 바로 열려요.`
+    :`${APP_NAME} 안의 화면에서는 구글 로그인과 앱 설치가 막혀 있어요. 오른쪽 위 메뉴(··· 또는 공유)에서 "Safari로 열기"를 누르거나, 주소를 복사해 Safari에 붙여넣어 주세요.`;
+  $('inappOpen').hidden=!(IS_KAKAO||IS_ANDROID);
+  bar.hidden=false;
+  const ib=$('installBox');if(ib)ib.hidden=true;
+  if(focus){bar.scrollIntoView({behavior:'smooth',block:'start'});bar.animate&&bar.animate([{outline:'2px solid var(--ink)'},{outline:'2px solid transparent'}],{duration:1200})}
+}
+$('inappOpen').addEventListener('click',openExternal);
+$('inappCopy').addEventListener('click',()=>copyLink(!IS_ANDROID&&!IS_KAKAO));
+if(INAPP)showInapp(false);

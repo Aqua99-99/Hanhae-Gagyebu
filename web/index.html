@@ -476,10 +476,19 @@ dialog.wide{width:min(960px,calc(100% - 24px))}
 .install-t span{color:var(--muted);font-size:13px}
 .install .btn-add{padding:8px 16px}
 @media (display-mode: standalone){.install{display:none!important}}
+.inapp{display:flex;align-items:center;gap:12px;flex-wrap:wrap;border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin:0 0 18px;background:var(--surface)}
+.inapp-t{flex:1;min-width:220px;display:flex;flex-direction:column;gap:2px;font-size:14px}
+.inapp-t span{color:var(--muted);font-size:13px;line-height:1.6}
+.inapp-b{display:flex;gap:8px}
+.inapp-b button{padding:9px 14px;font-size:14px}
 </style>
 </head>
 <body>
 <div class="wrap">
+  <div class="inapp" id="inappBar" hidden role="alert">
+    <div class="inapp-t"><b id="inappTitle">다른 브라우저로 열어주세요</b><span id="inappMsg">이 앱 안의 화면에서는 구글 로그인과 앱 설치가 막혀 있어요.</span></div>
+    <div class="inapp-b"><button type="button" class="btn-add" id="inappOpen">브라우저로 열기</button><button type="button" class="btn-ghost" id="inappCopy">주소 복사</button></div>
+  </div>
   <section id="auth" class="landing" hidden>
     <nav class="ln-nav">
       <span class="ln-brand"><svg class="ln-mark" viewBox="0 0 32 32" aria-hidden="true" id="lnMark"></svg>한 해 가계부</span>
