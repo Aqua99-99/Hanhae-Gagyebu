@@ -2,6 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8">
+<meta name="color-scheme" content="light dark">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>한 해 가계부</title>
 <link rel="icon" type="image/png" sizes="48x48" href="icons/favicon-48.png">
@@ -521,12 +522,14 @@ dialog.wide{width:min(960px,calc(100% - 24px))}
 @media (prefers-color-scheme:light){:root:not([data-theme="dark"]) .sp-snow{background:#9DB8E8}}
 :root[data-theme="light"] .sp-fly{background:#2EC4B6;box-shadow:0 0 6px 1px rgba(46,196,182,.4)}
 @media (prefers-color-scheme:light){:root:not([data-theme="dark"]) .sp-fly{background:#2EC4B6;box-shadow:0 0 6px 1px rgba(46,196,182,.4)}}
-@media (max-width:820px){.sp:nth-child(n+7){display:none}.glow{--ga:.16}}
+@media (max-width:820px){.sp:nth-child(n+6){display:none}.sp{--z:.6!important;opacity:.32!important}.sp-fly{opacity:.5!important}.glow{--ga:.2}}
 html.is-hidden .ss,html.is-hidden .sp{animation-play-state:paused}
 @media (prefers-reduced-motion:reduce){
   .ss,.sp{animation:none}.sp{display:none}
   .ss{opacity:0}.ss.now{opacity:1}
 }
+.q-alts{flex-basis:100%;display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12px;color:var(--muted);margin-top:2px}
+.q-alts .chip{padding:4px 10px;font-size:13px}
 </style>
 </head>
 <body>

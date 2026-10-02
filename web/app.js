@@ -2006,16 +2006,19 @@ function parseReceipt(text){
   // 날짜
   let date=null,m;
   if((m=flat.match(/(20\d{2})\s*[.\-/년]\s*(\d{1,2})\s*[.\-/월]\s*(\d{1,2})/)))date=parseDate(`${m[1]}-${m[2]}-${m[3]}`);
-  else if((m=flat.match(/(?:^|[^\d])(\d{2})\s*[.\-/]\s*(\d{1,2})\s*[.\-/]\s*(\d{1,2})(?!\d)/)))date=parseDate(`20${m[1]}-${m[2]}-${m[3]}`);
+  else{
+    // 26-10-01 / 26.10.01 / 판매일:26-10-0118:14 (날짜 바로 뒤에 시간이 붙어 읽힌 경우)
+    const dl=lines.find(l=>/(판\s*매\s*일|거\s*래\s*일|일\s*시|날\s*짜|매\s*출\s*일)/.test(l))||flat;
+    if((m=dl.match(/(?:^|[^\d])(\d{2})\s*[.\-/]\s*(\d{1,2})\s*[.\-/]\s*(\d{2})(?=\s*\d{1,2}:\d{2}|[^\d]|$)/))||(m=flat.match(/(?:^|[^\d])(\d{2})\s*[.\-/]\s*(\d{1,2})\s*[.\-/]\s*(\d{2})(?=\s*\d{1,2}:\d{2}|[^\d]|$)/)))date=parseDate(`20${m[1]}-${m[2]}-${m[3]}`);
+  }
   if(date&&date>todayStr(1))date=null;
   if(!date)date=todayStr(0);
-  // 가게 이름: '가맹점명/상호' 줄을 먼저, 없으면 위쪽의 한글 줄
+  // 가게 이름: 영수증 맨 위의 크게 찍힌 이름을 먼저, 없으면 '가맹점명/상호' 줄
   let store='';
-  for(const l of lines){const mm=l.match(/(?:상\s*호|가\s*맹\s*점\s*명?|매\s*장\s*명|점\s*포\s*명)\s*[:：;]?\s*(.+)/);if(mm&&/[가-힣]{2,}/.test(mm[1])){store=mm[1];break}}
-  if(!store){
-    const skip=/(영수증|매출전표|전표|고객용|카드|사업자|등록|대표|주소|전화|TEL|번호|일시|날짜|판매일|금액|합계|부가세|과세|품명|상품명|단가|수량|POS|포스|감사|환영|교환|환불|반품|지참|\d{2,}[-:]\d{2,})/i;
-    store=(lines.slice(0,6).find(l=>/[가-힣]{2,}/.test(l)&&!skip.test(l)&&money(l).length===0)||'');
-  }
+  const skip=/(영수증|매출전표|전표|고객용|카드|사업자|사업|등록|대표|주\s*소|전화|TEL|번호|일시|날짜|판매일|금액|합계|부가세|과세|품명|상품명|단가|수량|POS|포스|감사|환영|교환|환불|반품|지참|광역시|특별시|\d{2,}[-:]\d{2,})/i;
+  store=(lines.slice(0,3).find(l=>/[가-힣]{2,}/.test(l)&&!skip.test(l)&&money(l).length===0&&!/\d{3,}/.test(l))||'');
+  if(!store){for(const l of lines){const mm=l.match(/(?:상\s*호|가\s*맹\s*점\s*명?|매\s*장\s*명|점\s*포\s*명)\s*[:：;]?\s*(.+)/);if(mm&&/[가-힣]{2,}/.test(mm[1])){store=mm[1];break}}}
+  if(!store)store=(lines.slice(0,6).find(l=>/[가-힣]{2,}/.test(l)&&!skip.test(l)&&money(l).length===0)||'');
   store=store.replace(/\(\s*주\s*\)|㈜|주식회사/g,'').replace(/[()（）]/g,' ').replace(/[^\w가-힣&\s.-]/g,'').replace(/\s+/g,' ').trim().slice(0,30);
   if(!/[가-힣]{2,}/.test(store))store='';
   // 결제수단·할부
@@ -2143,7 +2146,8 @@ function rcAltNames(text){
   const lines=String(text).split('\n').map(l=>l.trim()).filter(Boolean),out=[];
   const clean=t=>t.replace(/\(\s*주\s*\)|㈜|주식회사/g,'').replace(/[()（）]/g,' ').replace(/[^\w가-힣&\s.-]/g,'').replace(/\s+/g,' ').trim().slice(0,30);
   for(const l of lines){const m=l.match(/(?:가\s*맹\s*점\s*명?|상\s*호)\s*[:：;]?\s*(.+)/);if(m){const t=clean(m[1]);if(/[가-힣]{2,}/.test(t)&&!out.includes(t))out.push(t)}}
-  for(const l of lines.slice(0,4)){const t=clean(l);if(/[가-힣]{2,}/.test(t)&&!/(사업자|대표|주소|전화|영수증|반품|판매일|번호)/.test(t)&&!/\d{3,}/.test(t)&&!out.includes(t))out.push(t)}
+  const addr=/(주\s*소|광역시|특별시|[가-힣]+(시|군|구)\s|[가-힣]+(로|길)\s*\d|사업|대표|전화|영수증|반품|판매일|번호)/;
+  for(const l of lines.slice(0,4)){const t=clean(l);if(/[가-힣]{2,}/.test(t)&&!addr.test(l)&&!/\d{3,}/.test(t)&&!out.includes(t))out.push(t)}
   return out;
 }
 
