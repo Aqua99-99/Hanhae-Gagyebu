@@ -1268,7 +1268,8 @@ function renderQ(msg,src){
       <input type="number" class="inp q-amt" data-q="amount" data-i="${i}" value="${q.amount}" inputmode="numeric" aria-label="금액">
       <button type="button" class="x" data-qdel="${i}" aria-label="빼기">✕</button>
     </div>`).join('')}</div>
-    <div class="q-act"><span class="small">${src==='ai'?'Claude가 정리했어요.':'이렇게 이해했어요.'} 맞는지 확인하고 추가해 주세요.</span>
+    ${src==='receipt'&&RC_RAW?`<details class="rc-raw"><summary>영수증에서 읽은 글자 보기</summary><pre>${esc(RC_RAW)}</pre></details>`:''}
+    <div class="q-act"><span class="small">${src==='ai'?'Claude가 정리했어요.':src==='receipt'?'영수증에서 읽었어요. 금액과 가게 이름을 꼭 확인해 주세요.':'이렇게 이해했어요.'} 맞는지 확인하고 추가해 주세요.</span>
       ${src==='local'&&AI_ON?'<button type="button" class="lnk" id="qAI">Claude에게 다시 맡기기</button>':''}
       <span class="spacer"></span><button type="button" class="btn-ghost" id="qCancel">취소</button><button type="button" class="btn-add" id="qAdd">${QITEMS.length}건 추가</button></div>`;
 }
@@ -1862,3 +1863,102 @@ function showInapp(focus){
 $('inappOpen').addEventListener('click',openExternal);
 $('inappCopy').addEventListener('click',()=>copyLink(!IS_ANDROID&&!IS_KAKAO));
 if(INAPP)showInapp(false);
+
+/* ---------- 영수증 사진으로 입력 (폰 안에서 글자 인식, 무료) ----------
+   사진은 어디로도 보내지 않고 이 기기에서만 읽어요. 처음 한 번 한국어 인식 데이터를 받아요. */
+let RC_RAW='',rcWorker=null,rcIdle=null,rcBusy=false;
+function loadTesseract(){
+  if(window.Tesseract)return Promise.resolve();
+  return new Promise((res,rej)=>{const sc=document.createElement('script');sc.src='vender/tesseract/tesseract.min.js';sc.onload=res;sc.onerror=()=>rej(new Error('load'));document.head.appendChild(sc)});
+}
+function rcProgress(p,label){
+  $('qOut').innerHTML=`<p class="q-msg">${label}</p><div class="rc-prog"><b style="width:${Math.round(p*100)}%"></b></div>`;
+}
+async function getRcWorker(){
+  if(rcWorker)return rcWorker;
+  await loadTesseract();
+  rcWorker=await Tesseract.createWorker(['kor','eng'],1,{
+    workerPath:new URL('vender/tesseract/worker.min.js',location.href).href,
+    corePath:new URL('vender/tesseract/core',location.href).href,
+    langPath:new URL('vender/tesseract/lang',location.href).href,
+    workerBlobURL:false,
+    logger:m=>{
+      if(m.status==='recognizing text')rcProgress(.35+.65*m.progress,'영수증 글자를 읽고 있어요…');
+      else if(/load|initializ/.test(m.status||''))rcProgress(.05+.3*(m.progress||0),'글자 인식 준비 중이에요… (처음 한 번은 조금 걸려요)');
+    }
+  });
+  return rcWorker;
+}
+function rcScheduleTerminate(){clearTimeout(rcIdle);rcIdle=setTimeout(async()=>{if(rcWorker&&!rcBusy){try{await rcWorker.terminate()}catch(e){}rcWorker=null}},90000)}
+// 사진을 줄이고 흑백·대비를 높여서 인식률을 올려요
+function rcPrepare(file){
+  return new Promise((res,rej)=>{
+    const img=new Image(),url=URL.createObjectURL(file);
+    img.onload=()=>{
+      const max=1800,sc=Math.min(1,max/Math.max(img.width,img.height));
+      const w=Math.round(img.width*sc),h=Math.round(img.height*sc);
+      const c=document.createElement('canvas');c.width=w;c.height=h;
+      const x=c.getContext('2d');x.drawImage(img,0,0,w,h);
+      const d=x.getImageData(0,0,w,h),a=d.data;
+      let sum=0;for(let i=0;i<a.length;i+=4){const g=.299*a[i]+.587*a[i+1]+.114*a[i+2];a[i]=a[i+1]=a[i+2]=g;sum+=g}
+      const mean=sum/(a.length/4);
+      for(let i=0;i<a.length;i+=4){let g=(a[i]-mean)*1.6+mean+15;g=g<0?0:g>255?255:g;a[i]=a[i+1]=a[i+2]=g}
+      x.putImageData(d,0,0);URL.revokeObjectURL(url);res(c);
+    };
+    img.onerror=()=>{URL.revokeObjectURL(url);rej(new Error('img'))};
+    img.src=url;
+  });
+}
+// 읽은 글자에서 날짜·가게·합계·결제수단을 골라내요
+function parseReceipt(text){
+  const raw=String(text||'');
+  const lines=raw.split(/\n/).map(l=>l.replace(/\s+/g,' ').trim()).filter(Boolean);
+  const flat=lines.join('\n');
+  const nums=l=>(l.match(/\d{1,3}(?:[,.]\d{3})+|\d{3,9}/g)||[]).map(t=>+t.replace(/[,.]/g,'')).filter(n=>n>=100&&n<1e9);
+  // 합계 금액: 결제·승인 금액을 가장 믿고, 그다음 합계·총액
+  const strong=/(결\s*제\s*금\s*액|승\s*인\s*금\s*액|받\s*을\s*금\s*액|카\s*드\s*결\s*제|청\s*구\s*금\s*액|결\s*제\s*요\s*청)/;
+  const mid=/(합\s*계|총\s*액|총\s*금\s*액|합\s*계\s*금\s*액|TOTAL|Total|판\s*매\s*금\s*액)/;
+  let amount=0;
+  const pick=re=>{for(let i=0;i<lines.length;i++){if(re.test(lines[i])&&!/(부가세|과세|면세|봉사료|할인)/.test(lines[i])){const n=nums(lines[i]);const nn=n.length?n:nums(lines[i+1]||'');if(nn.length)return Math.max(...nn)}}return 0};
+  amount=pick(strong)||pick(mid);
+  if(!amount){const all=lines.filter(l=>!/(\d{2,4}-\d{3,4}-\d{4}|사업자|등록번호|전화|TEL|카드번호|승인번호|\*{2,})/i.test(l)).flatMap(nums);if(all.length)amount=Math.max(...all)}
+  // 날짜
+  let date=null,m;
+  if((m=flat.match(/(20\d{2})\s*[.\-/년]\s*(\d{1,2})\s*[.\-/월]\s*(\d{1,2})/)))date=parseDate(`${m[1]}-${m[2]}-${m[3]}`);
+  else if((m=flat.match(/(?:^|\D)(\d{2})[.\-/](\d{1,2})[.\-/](\d{1,2})(?:\D|$)/)))date=parseDate(`20${m[1]}-${m[2]}-${m[3]}`);
+  if(!date)date=todayStr(0);
+  // 가게 이름: '상호/가맹점' 줄을 먼저 보고, 없으면 위쪽의 한글 줄
+  let store='';
+  for(const l of lines){const mm=l.match(/(?:상\s*호|가\s*맹\s*점\s*명?|매\s*장\s*명|점\s*포\s*명)\s*[:：]?\s*(.+)/);if(mm&&/[가-힣A-Za-z]/.test(mm[1])){store=mm[1];break}}
+  if(!store){
+    const skip=/(영수증|매출전표|전표|고객용|카드|사업자|등록|대표|주소|전화|TEL|번호|일시|날짜|금액|합계|부가세|과세|품명|단가|수량|POS|포스|감사|환영|교환|환불|\d{2,}[-:]\d{2,})/i;
+    store=(lines.slice(0,8).find(l=>/[가-힣]{2,}/.test(l)&&!skip.test(l)&&nums(l).length===0)||'');
+  }
+  store=store.replace(/\(\s*주\s*\)|㈜|주식회사/g,'').replace(/[^\w가-힣&\s.-]/g,'').replace(/\s+/g,' ').trim().slice(0,30);
+  // 결제수단·할부
+  let pay='cash',inst=1;
+  if(/체\s*크/.test(flat))pay='debit';else if(/(신\s*용|카\s*드|승\s*인|일\s*시\s*불|할\s*부)/.test(flat))pay='credit';
+  const im=flat.match(/할\s*부\s*(\d{1,2})\s*개?\s*월?/);if(im&&+im[1]>1)inst=+im[1];
+  const memo=store||'영수증';
+  let cat=suggestCat('out',memo,'');
+  if(cat===fallbackCat('out')){const c2=suggestCat('out',flat.slice(0,300),'');if(c2)cat=c2}
+  return amount?{date,type:'out',amount,memo,cat,pay,inst:pay==='credit'?inst:1,dir:'out',peer:''}:null;
+}
+$('rcFile').addEventListener('change',async e=>{
+  const f=e.target.files&&e.target.files[0];e.target.value='';
+  if(!f||rcBusy)return;
+  if(!/^image\//.test(f.type)){renderQ('사진 파일만 읽을 수 있어요.');return}
+  rcBusy=true;clearTimeout(rcIdle);
+  try{
+    rcProgress(.02,'사진을 준비하고 있어요…');
+    const canvas=await rcPrepare(f);
+    const w=await getRcWorker();
+    const {data}=await w.recognize(canvas);
+    RC_RAW=(data&&data.text||'').trim();
+    const item=parseReceipt(RC_RAW);
+    if(item){QITEMS=[item];renderQ(null,'receipt')}
+    else{QITEMS=[];renderQ('영수증에서 금액을 찾지 못했어요. 영수증이 화면에 꽉 차고 밝게 나오도록 다시 찍어보세요.')}
+  }catch(err){
+    renderQ(err&&err.message==='load'?'글자 인식 도구를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.':'영수증을 읽지 못했어요. 다른 사진으로 다시 시도해 주세요.');
+  }finally{rcBusy=false;rcScheduleTerminate()}
+});
