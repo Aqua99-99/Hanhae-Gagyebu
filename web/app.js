@@ -1966,6 +1966,9 @@ async function rcStoreNames(w,canvas,data){
   return out;
 }
 // 읽은 글자에서 날짜·가게·합계·결제수단을 골라내요
+// 자주 헷갈리는 글자 바로잡기 (영수증에 흔한 단어 위주)
+const WORD_FIX=[[/롯더|룻데|롯대/g,'롯데'],[/땅꽁|띵콩|땅공/g,'땅콩'],[/고무장깁|고무장감/g,'고무장갑'],[/우유우/g,'우유'],[/삼다슈/g,'삼다수'],[/바니나|바나니/g,'바나나'],[/새우깡깡/g,'새우깡']];
+function fixWords(t){for(const [re,v] of WORD_FIX)t=t.replace(re,v);return t}
 // 상품명: '상품명/품명' 머리줄과 '합계/면세/과세' 줄 사이에서 글자가 있는 줄만 골라요
 function receiptItems(lines){
   const st=lines.findIndex(l=>/(상\s*품\s*명|품\s*명|품\s*목|메\s*뉴|내\s*역)/.test(l));if(st<0)return [];
@@ -1975,7 +1978,7 @@ function receiptItems(lines){
     if(!/[가-힣]/.test(l))continue;
     let t=l.replace(/^[^가-힣]{0,6}?(?=[가-힣])/,m=>/[가-힣A-Za-z]{2,}\(/.test(m)?m:'').replace(/(^|\s)[)\]}]+(?=[가-힣])/g,'$1').replace(/\(\s*\)/g,'').replace(/\b\d{6,}\b/g,' ').replace(/(\d{1,3}(?:[,.]\d{3})+|\b\d+\b|[#*@])/g,' ').replace(/\s+/g,' ').trim();
     if(!/[가-힣]/.test(t)||/(단\s*가|수\s*량|금\s*액|할\s*인|쿠\s*폰|면\s*세|과\s*세)/.test(t))continue;
-    t=t.slice(0,20);if(!out.includes(t))out.push(t);
+    t=fixWords(t).slice(0,20);if(!out.includes(t))out.push(t);
     if(out.length>=8)break;
   }
   return out;
@@ -2025,6 +2028,7 @@ function parseReceipt(text){
   if(!store)store=(lines.slice(0,6).find(l=>/[가-힣]{2,}/.test(l)&&!skip.test(l)&&money(l).length===0)||'');
   store=store.replace(/\(\s*주\s*\)|㈜|주식회사/g,'').replace(/[()（）]/g,' ').replace(/[^\w가-힣&\s.-]/g,'').replace(/\s+/g,' ').trim().slice(0,30);
   if(!/[가-힣]{2,}/.test(store))store='';
+  store=fixWords(store);
   // 결제수단·할부
   let pay='cash',inst=1;
   if(/체\s*크/.test(flat))pay='debit';else if(/(신\s*용|카\s*드|승\s*인|일\s*시\s*불|할\s*부)/.test(flat))pay='credit';
@@ -2157,10 +2161,30 @@ async function pdlRecognize(full,b){
   if(!best.text)return null;
   return {text:best.text,conf:best.conf,...b,h:b.h};
 }
+// 사진에서 가장 밝은 종이(영수증) 부분만 남겨요 — 옆에 찍힌 키보드·책상 글자를 읽지 않게
+function cropPaper(src){
+  const W=src.width,H=src.height,sw=200,sh=Math.max(1,Math.round(H*sw/W));
+  const c=document.createElement('canvas');c.width=sw;c.height=sh;const x=c.getContext('2d',{willReadFrequently:true});
+  x.filter='blur(2px)';x.drawImage(src,0,0,sw,sh);
+  const d=x.getImageData(0,0,sw,sh).data,lum=new Float32Array(sw*sh);
+  for(let k=0;k<sw*sh;k++)lum[k]=.299*d[k*4]+.587*d[k*4+1]+.114*d[k*4+2];
+  const sorted=Array.from(lum).sort((a,b)=>a-b),cut=Math.max(sorted[Math.floor(sorted.length*.5)],140);
+  // 열·행마다 밝은 칸 비율을 보고, 종이가 차지하는 범위를 찾아요
+  const colR=new Float32Array(sw),rowR=new Float32Array(sh);
+  for(let y=0;y<sh;y++)for(let xx=0;xx<sw;xx++)if(lum[y*sw+xx]>cut){colR[xx]++;rowR[y]++}
+  const span=(arr,len,need)=>{let a=0,b=len-1;while(a<len&&arr[a]<need)a++;while(b>a&&arr[b]<need)b--;return [a,b]};
+  const [x0,x1]=span(colR,sw,sh*.25),[y0,y1]=span(rowR,sh,sw*.15);
+  if(x1-x0<sw*.2||y1-y0<sh*.2)return src;
+  const f=W/sw,m=6*f,X0=Math.max(0,x0*f-m),Y0=Math.max(0,y0*f-m),X1=Math.min(W,(x1+1)*f+m),Y1=Math.min(H,(y1+1)*f+m);
+  if((X1-X0)*(Y1-Y0)>W*H*.92)return src;
+  const o=document.createElement('canvas');o.width=Math.round(X1-X0);o.height=Math.round(Y1-Y0);
+  o.getContext('2d').drawImage(src,X0,Y0,X1-X0,Y1-Y0,0,0,o.width,o.height);
+  return o;
+}
 async function paddleRead(file){
   await pdlInit();
   rcProgress(.32,'영수증에서 글자 위치를 찾고 있어요…');
-  const full=await pdlLoadImage(file);
+  const full=cropPaper(await pdlLoadImage(file));
   const boxes=await pdlDetect(full);
   if(!boxes.length)return '';
   const items=[];
@@ -2181,7 +2205,7 @@ function rcAltNames(text){
   const lines=String(text).split('\n').map(l=>l.trim()).filter(Boolean),out=[];
   const clean=t=>t.replace(/\(\s*주\s*\)|㈜|주식회사/g,'').replace(/[()（）]/g,' ').replace(/[^\w가-힣&\s.-]/g,'').replace(/\s+/g,' ').trim().slice(0,30);
   for(const l of lines){const m=l.match(/(?:가\s*맹\s*점\s*명?|상\s*호)\s*[:：;]?\s*(.+)/);if(m){const t=clean(m[1]);if(/[가-힣]{2,}/.test(t)&&!out.includes(t))out.push(t)}}
-  const addr=/(주\s*소|광역시|특별시|[가-힣]+(시|군|구)\s|[가-힣]+(로|길)\s*\d|사업|대표|전화|영수증|반품|판매일|번호)/;
+  const addr=/(주\s*소|광역시|특별시|[가-힣]+(시|군|구)\s|[가-힣]+(로|길)\s*\d|사업|대표|표\s*자|외\s*\d\s*명|전화|영수증|반품|판매일|번호)/;
   for(const l of lines.slice(0,4)){const t=clean(l);if(/[가-힣]{2,}/.test(t)&&!addr.test(l)&&!/\d{3,}/.test(t)&&!out.includes(t))out.push(t)}
   return out;
 }
