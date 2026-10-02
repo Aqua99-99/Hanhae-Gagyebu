@@ -69,6 +69,7 @@ function cleanEntry(e){
   else o.cat=sid(e.cat)||'';
   if(type==='out'){o.pay=oneOf(e.pay,['cash','debit','credit'],'cash');const n=sint(e.inst,2,60);if(n&&o.pay==='credit')o.inst=n}
   const f=sid(e.fid);if(f)o.fid=f;
+  const u=sint(e.u,0,9e15);if(u)o.u=u;
   return o;
 }
 function cleanCats(c){
@@ -119,17 +120,27 @@ function normLedger(o){
   out.settings=cleanSettings(o.settings);
   if(Array.isArray(o.entries))out.entries=o.entries.slice(0,20000).map(cleanEntry).filter(Boolean);
   if(o.cats&&typeof o.cats==='object')out.cats=cleanCats(o.cats);
+  out.tomb=cleanTomb(o.tomb);out.mu=sint(o.mu,0,9e15)||0;
   return out;
+}
+function cleanTomb(t){
+  const o={};if(!t||typeof t!=='object')return o;
+  const cut=Date.now()-180*864e5;
+  const arr=Object.entries(t).filter(([k,v])=>sid(k)&&sint(v,cut,9e15)).sort((a,b)=>b[1]-a[1]).slice(0,3000);
+  for(const [k,v] of arr)o[k]=Math.round(Number(v));
+  return o;
 }
 function syncCur(){if(S.cur&&LEDGERS[S.cur]){const L=LEDGERS[S.cur];L.entries=S.entries;L.cats=S.cats;L.settings=S.settings}}
 function loadLocal(){
   try{
     const r=localStorage.getItem(LS2);
-    if(r){const o=JSON.parse(r);IDX=cleanIndex(o.index);LEDGERS={};
-      for(const it of IDX)LEDGERS[it.id]=normLedger(o.ledgers&&o.ledgers[it.id]);return}
+    if(r){const o=JSON.parse(r);IDX=cleanIndex(o.index);IU=sint(o.iu,0,9e15)||0;DELL=cleanTomb(o.del);LEDGERS={};
+      for(const it of IDX)LEDGERS[it.id]=initKnown(normLedger(o.ledgers&&o.ledgers[it.id]));return}
   }catch(e){}
 }
-function saveLocal(){syncCur();try{localStorage.setItem(LS2,JSON.stringify({index:IDX,ledgers:LEDGERS}))}catch(e){}}
+let IU=0,DELL={}; // 가계부 목록을 마지막으로 바꾼 시각, 지운 가계부
+const noPriv=(k,v)=>(typeof k==='string'&&k.startsWith('_'))?undefined:v;
+function saveLocal(){syncCur();try{localStorage.setItem(LS2,JSON.stringify({index:IDX,iu:IU,del:DELL,ledgers:LEDGERS},noPriv))}catch(e){}}
 function setSync(t){document.querySelectorAll('.sync').forEach(n=>n.textContent=t)}
 const savedJSON={};
 function writeDoc(docId,data){
@@ -152,31 +163,64 @@ function writeDoc(docId,data){
 /* 가계부 하나 = 기본 정보 문서 1개 + 연도별 기록 문서 (연도마다 용량이 따로라 오래 써도 안 차요) */
 const yDoc=(id,y)=>`${id}__y${y}`;
 function splitYears(entries){const g={};for(const e of entries){const y=e.date.slice(0,4);(g[y]=g[y]||[]).push(e)}return g}
+/* ---------- 동기화 ----------
+   기록마다 마지막으로 바꾼 시각(u)을, 지운 기록은 '지운 시각'(tomb)을 남겨요.
+   서버와 이 기기의 내용을 기록 하나하나 비교해서 더 최근 것을 남기기 때문에,
+   인터넷이 끊긴 동안 쓴 기록이나 다른 기기에서 쓴 기록이 서로 덮어써지지 않아요. */
+function stampLedger(L){
+  if(!L)return;const now=Date.now();
+  L.tomb=L.tomb||{};
+  const ids=new Set();
+  for(const e of L.entries){ids.add(e.id);if(!e.u)e.u=now;if(L.tomb[e.id])delete L.tomb[e.id]}
+  if(L._known)for(const id of L._known)if(!ids.has(id))L.tomb[id]=now;
+  L._known=ids;
+  const mj=JSON.stringify({c:L.cats,s:L.settings});
+  if(L._metaJSON!==undefined&&L._metaJSON!==mj)L.mu=now;
+  if(!L.mu)L.mu=now;
+  L._metaJSON=mj;
+  L.tomb=cleanTomb(L.tomb);
+}
+function initKnown(L){if(!L)return L;L._known=new Set(L.entries.map(e=>e.id));L._metaJSON=JSON.stringify({c:L.cats,s:L.settings});return L}
 function writeLedger(id){
   const L=LEDGERS[id];if(!L)return;
+  stampLedger(L);
   const g=splitYears(L.entries),years=Object.keys(g).sort();
   const prevYears=L._years||[];
   for(const y of years)writeDoc(yDoc(id,y),{entries:g[y]});
   for(const y of prevYears)if(!g[y])writeDoc(yDoc(id,y),{entries:[]});
   L._years=Array.from(new Set([...prevYears,...years])).sort();
-  writeDoc(id,{cats:L.cats,settings:L.settings,years:L._years,v:2});
+  writeDoc(id,{cats:L.cats,settings:L.settings,years:L._years,tomb:L.tomb,mu:L.mu,v:3});
 }
 async function loadLedger(id){
   const snap=await DB.doc(BASE+'/'+id).get();
-  if(!snap.exists)return normLedger(null);
+  if(!snap.exists)return null;
   const m=snap.data()||{};
-  if(Array.isArray(m.entries)){ // 예전 방식(한 문서) → 연도별로 옮기기
-    const L=normLedger(m);LEDGERS[id]=L;writeLedger(id);return L;
-  }
-  const years=Array.isArray(m.years)?m.years:[];
+  if(Array.isArray(m.entries)){const L=normLedger(m);L._years=[];return L} // 예전 한 문서 방식
+  const years=Array.isArray(m.years)?m.years.filter(y=>/^\d{4}$/.test(y)):[];
   const ys=await Promise.all(years.map(y=>DB.doc(BASE+'/'+yDoc(id,y)).get()));
-  const entries=[];ys.forEach((sn,i)=>{if(sn.exists){const d=sn.data()||{};if(Array.isArray(d.entries)){entries.push(...d.entries);savedJSON[yDoc(id,years[i])]=JSON.stringify({entries:d.entries})}}});
-  const L=normLedger({entries,cats:m.cats,settings:m.settings});L._years=years;
-  savedJSON[id]=JSON.stringify({cats:L.cats,settings:L.settings,years,v:2});
+  const entries=[];ys.forEach(sn=>{if(sn.exists){const d=sn.data()||{};if(Array.isArray(d.entries))entries.push(...d.entries)}});
+  const L=normLedger({entries,cats:m.cats,settings:m.settings,tomb:m.tomb,mu:m.mu});L._years=years;
   return L;
 }
-function persist(){saveLocal();if(S.cur)writeLedger(S.cur)}
-function persistIndex(){saveLocal();writeDoc('index',{list:IDX})}
+function mergeLedger(a,b){ // a: 이 기기, b: 서버
+  if(!a&&!b)return normLedger(null);
+  if(!a)return initKnown(b);
+  if(!b)return a;
+  const tomb={...b.tomb};for(const [k,v] of Object.entries(a.tomb||{}))if(!tomb[k]||v>tomb[k])tomb[k]=v;
+  const map=new Map();
+  for(const e of b.entries)map.set(e.id,e);
+  for(const e of a.entries){const o=map.get(e.id);if(!o||(e.u||0)>=(o.u||0))map.set(e.id,e)}
+  const entries=[...map.values()].filter(e=>!(tomb[e.id]&&tomb[e.id]>=(e.u||0)));
+  const metaA=(a.mu||0)>(b.mu||0);
+  const L={entries,cats:metaA?a.cats:b.cats,settings:metaA?a.settings:b.settings,tomb:cleanTomb(tomb),mu:Math.max(a.mu||0,b.mu||0)};
+  L._years=b._years||[];
+  return initKnown(L);
+}
+const sameLedger=(x,y)=>{if(!x||!y)return false;
+  const ids=l=>l.entries.map(e=>e.id+':'+(e.u||0)).sort().join(',');
+  return ids(x)===ids(y)&&JSON.stringify([x.cats,x.settings])===JSON.stringify([y.cats,y.settings])&&JSON.stringify(x.tomb||{})===JSON.stringify(y.tomb||{})};
+function persist(){syncCur();if(S.cur)writeLedger(S.cur);saveLocal()}
+function persistIndex(){IU=Date.now();saveLocal();writeDoc('index',{list:IDX,iu:IU,del:DELL})}
 /* Supabase 저장소: docs 테이블 (user_id, doc_id, data). 행 수준 보안(RLS)으로 본인 행만 읽고 쓸 수 있어요. */
 function makeDB(userId){
   const idOf=path=>String(path).split('/').pop();
@@ -188,33 +232,66 @@ function makeDB(userId){
     async delete(){const {error}=await sb.from('docs').delete().eq('user_id',userId).eq('doc_id',docId);if(error)throw error}
   }}};
 }
-async function connect(user){
+let syncing=false,lastSync=0;
+async function syncAll(){
+  if(!DB||syncing)return;syncing=true;
   try{
-    DB=makeDB(user.id);BASE='u';
+    syncCur();
+    for(const id of Object.keys(LEDGERS))stampLedger(LEDGERS[id]); // 이 기기의 변경을 먼저 기록
     const idx=await DB.doc(BASE+'/index').get();
-    if(idx.exists&&Array.isArray((idx.data()||{}).list)){
-      IDX=cleanIndex(idx.data().list);
-      const loaded=await Promise.all(IDX.map(it=>loadLedger(it.id)));
-      const next={};IDX.forEach((it,i)=>next[it.id]=loaded[i]);
-      LEDGERS=next;
-    }else{
-      const old=await DB.doc(BASE+'/ledger').get();
-      if(old.exists){
-        IDX=[{id:'ledger',name:'내 가계부'}];LEDGERS={ledger:normLedger(old.data())};
-        writeDoc('index',{list:IDX});writeLedger('ledger');
-      }else if(IDX.length){
-        writeDoc('index',{list:IDX});
-        IDX.forEach(it=>writeLedger(it.id));
+    let serverList=null,serverIU=0,serverDel={};
+    if(idx.exists&&Array.isArray((idx.data()||{}).list)){const d=idx.data();serverList=cleanIndex(d.list);serverIU=sint(d.iu,0,9e15)||0;serverDel=cleanTomb(d.del)}
+    else{const old=await DB.doc(BASE+'/ledger').get();if(old.exists)serverList=[{id:'ledger',name:'내 가계부'}]}
+    // 가계부 목록: 양쪽을 합치고, 어느 쪽에서든 지운 가계부는 빼요. 이름이 다르면 더 최근에 바꾼 쪽을 따라요.
+    const del={...serverDel};for(const [k,v] of Object.entries(DELL))if(!del[k]||v>del[k])del[k]=v;
+    const sl=serverList||[];
+    const primary=IU>serverIU?IDX:sl,secondary=IU>serverIU?sl:IDX;
+    let finalList=primary.slice();
+    for(const it of secondary)if(!finalList.some(x=>x.id===it.id))finalList.push(it);
+    finalList=finalList.filter(it=>!del[it.id]);
+    DELL=cleanTomb(del);
+    const pushIndex=!serverList||JSON.stringify(finalList)!==JSON.stringify(sl)||JSON.stringify(DELL)!==JSON.stringify(serverDel);
+    IU=Math.max(IU,serverIU);
+    const servers=await Promise.all(finalList.map(it=>loadLedger(it.id).catch(()=>undefined)));
+    const next={};
+    finalList.forEach((it,i)=>{
+      const srv=servers[i];if(srv===undefined){next[it.id]=LEDGERS[it.id]||normLedger(null);return}
+      const merged=mergeLedger(LEDGERS[it.id],srv);
+      next[it.id]=merged;
+      if(!sameLedger(merged,srv)){ // 서버가 뒤처져 있으면 합친 내용을 올려요
+        for(const k of Object.keys(savedJSON))if(k===it.id||k.startsWith(it.id+'__'))delete savedJSON[k];
+        LEDGERS[it.id]=merged;writeLedgerTo(next,it.id);
+      }else{
+        // 서버와 같으면 다시 올리지 않도록 기억해 둬요
+        const g=splitYears(merged.entries);for(const y of Object.keys(g))savedJSON[yDoc(it.id,y)]=JSON.stringify({entries:g[y]});
+        savedJSON[it.id]=JSON.stringify({cats:merged.cats,settings:merged.settings,years:merged._years,tomb:merged.tomb,mu:merged.mu,v:3});
       }
-    }
+    });
+    IDX=finalList;LEDGERS=next;
+    if(pushIndex){IU=Math.max(IU,Date.now());delete savedJSON.index;writeDoc('index',{list:IDX,iu:IU,del:DELL})}
     IDX.forEach(it=>runFixedFor(it.id));
-    try{localStorage.setItem(LS2,JSON.stringify({index:IDX,ledgers:LEDGERS}))}catch(e){}
+    saveLocal();
     if(S.cur&&LEDGERS[S.cur]){S.entries=LEDGERS[S.cur].entries;S.cats=LEDGERS[S.cur].cats;S.settings=LEDGERS[S.cur].settings;render()}
     else if(S.cur){goHome()}
     else renderHome();
-    setSync('저장됨');
+    lastSync=Date.now();setSync('저장됨');
+  }finally{syncing=false}
+}
+function writeLedgerTo(store,id){const keep=LEDGERS;LEDGERS=store;try{writeLedger(id)}finally{LEDGERS=keep}}
+async function connect(user){
+  try{
+    DB=makeDB(user.id);BASE='u';
+    await syncAll();
   }catch(e){DB=null;setSync('오프라인 · 이 기기에만 저장 중')}
 }
+// 인터넷이 다시 연결되거나 앱으로 돌아오면 서버와 맞춰요 (열려 있는 창이 있으면 기다려요)
+function trySync(force){
+  if(!ME||document.querySelector('dialog[open]'))return;
+  if(!force&&Date.now()-lastSync<20000)return;
+  if(!DB)connect(ME);else syncAll().catch(()=>setSync('오프라인 · 이 기기에만 저장 중'));
+}
+window.addEventListener('online',()=>trySync(true));
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')trySync(false)});
 
 /* ---------- 가계부 목록 ---------- */
 function goHome(){syncCur();S.cur=null;$('ledgerView').hidden=true;$('home').hidden=false;renderHome();window.scrollTo(0,0)}
@@ -266,7 +343,7 @@ function saveLg(){
 }
 function deleteLedger(id){
   const L=LEDGERS[id];const years=L?Array.from(new Set([...(L._years||[]),...Object.keys(splitYears(L.entries))])):[];
-  IDX=IDX.filter(x=>x.id!==id);delete LEDGERS[id];
+  IDX=IDX.filter(x=>x.id!==id);delete LEDGERS[id];DELL[id]=Date.now();
   clearTimeout(timers[id]);
   if(DB){DB.doc(BASE+'/'+id).delete().catch(()=>{});years.forEach(y=>{clearTimeout(timers[yDoc(id,y)]);DB.doc(BASE+'/'+yDoc(id,y)).delete().catch(()=>{})})}
   persistIndex();renderHome();
@@ -699,15 +776,15 @@ function openEdit(id){
 }
 function removeMirror(e){
   if(e&&e.type==='xfer'&&e.peer&&LEDGERS[e.peer]&&e.xid){
-    const L=LEDGERS[e.peer];L.entries=L.entries.filter(x=>x.xid!==e.xid);saveLocal();writeLedger(e.peer);
+    const L=LEDGERS[e.peer];L.entries=L.entries.filter(x=>x.xid!==e.xid);writeLedger(e.peer);saveLocal();
   }
 }
 function addMirror(e,fromId){
   const from=fromId||S.cur;
   if(e.type==='xfer'&&e.peer&&LEDGERS[e.peer]&&e.peer!==from){
     const L=LEDGERS[e.peer];
-    L.entries.push({id:uid(),type:'xfer',dir:e.dir==='out'?'in':'out',peer:from,date:e.date,amount:e.amount,memo:e.memo,xid:e.xid});
-    saveLocal();writeLedger(e.peer);
+    L.entries.push({id:('m'+e.xid).slice(0,64),type:'xfer',dir:e.dir==='out'?'in':'out',peer:from,date:e.date,amount:e.amount,memo:e.memo,xid:e.xid});
+    writeLedger(e.peer);saveLocal();
   }
 }
 function deleteEntry(id){
@@ -1277,13 +1354,13 @@ function runFixedFor(id){
       const [y,m]=ym.split('-').map(Number);const last=new Date(y,m,0).getDate();
       const date=`${ym}-${pad(Math.min(f.day||1,last))}`;
       if(date>today)break;
-      const ne={id:uid(),type:f.type,date,amount:f.amount,memo:f.memo||'',fid:f.id};
-      if(f.type==='xfer'){ne.dir=f.dir||'out';ne.peer=f.peer||'';ne.xid=uid()}else ne.cat=f.cat;
+      const ne={id:(f.id+'_'+ym.replace('-','')).slice(0,64),type:f.type,date,amount:f.amount,memo:f.memo||'',fid:f.id};
+      if(f.type==='xfer'){ne.dir=f.dir||'out';ne.peer=f.peer||'';ne.xid=(f.id+'x'+ym.replace('-','')).slice(0,60)}else ne.cat=f.cat;
       if(f.type==='out'){ne.pay=f.pay||'cash';if(f.pay==='credit'&&f.inst>1)ne.inst=f.inst}
-      L.entries.push(ne);addMirror(ne,id);f.last=ym;changed=true;ym=nextYM(ym);
+      if(!L.entries.some(x=>x.id===ne.id)&&!(L.tomb&&L.tomb[ne.id])){L.entries.push(ne);addMirror(ne,id)}f.last=ym;changed=true;ym=nextYM(ym);
     }
   }
-  if(changed){if(id===S.cur)S.entries=L.entries;saveLocal();writeLedger(id)}
+  if(changed){if(id===S.cur)S.entries=L.entries;writeLedger(id);saveLocal()}
 }
 function fixedLine(){
   const fx=(S.settings.fixed||[]).filter(f=>!f.end);if(!fx.length)return '';
@@ -1511,7 +1588,7 @@ $('clist').addEventListener('click',e=>{
     const n=S.entries.filter(x=>x.cat===id).length,to=rest[rest.length-1];
     arm(d,n?`삭제 · ${n}건은 ${to.name}(으)로`:'삭제','✕',()=>{
       checkpoint('카테고리 삭제');
-      S.entries.forEach(x=>{if(x.cat===id)x.cat=to.id});
+      const nowU=Date.now();S.entries.forEach(x=>{if(x.cat===id){x.cat=to.id;x.u=nowU}});
       if(S.settings.budgets)delete S.settings.budgets[id];
       S.cats[S.cType]=rest;
       if(S.cat===id)S.cat=null;
