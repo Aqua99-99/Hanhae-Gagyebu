@@ -537,6 +537,22 @@ html.is-hidden .ss,html.is-hidden .sp{animation-play-state:paused}
 }
 .q-alts{flex-basis:100%;display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12px;color:var(--muted);margin-top:2px}
 .q-alts .chip{padding:4px 10px;font-size:13px}
+.ci{--c:var(--p5);width:28px;height:28px;border-radius:50%;background:var(--c);color:#fff;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto}
+.ci svg{width:60%;height:60%}
+.ci.xs{width:20px;height:20px}
+.ci.sm{width:24px;height:24px}
+.ci.lg{width:34px;height:34px}
+.chip .ci.xs{margin-left:-3px}
+.cat-rows .r1 .ci,.mlist .ci{width:26px;height:26px}
+.catpick button .ci{width:20px;height:20px}
+.ic-btn{border:0;background:none;padding:0;border-radius:50%;cursor:pointer;flex:0 0 auto}
+.ic-btn:hover .ci{outline:2px solid var(--ink);outline-offset:2px}
+.ic-grid-row{display:block!important;border-top:0!important;padding:4px 0 10px!important}
+.ic-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:6px;max-height:260px;overflow:auto;padding:8px;background:var(--soft);border-radius:12px}
+.ic-opt{border:1px solid transparent;background:var(--surface);border-radius:10px;padding:8px 4px;display:flex;flex-direction:column;align-items:center;gap:4px;font-size:11px;color:var(--muted)}
+.ic-opt.on{border-color:var(--ink);color:var(--ink)}
+.ic-opt .ci{width:30px;height:30px}
+.entry .ci.sm{margin-right:2px}
 </style>
 </head>
 <body>
@@ -905,7 +921,7 @@ html.is-hidden .ss,html.is-hidden .sp{animation-play-state:paused}
     <h2>카테고리 관리</h2>
     <div class="seg2" id="cType" role="group" aria-label="구분"><button type="button" data-ctype="out">지출</button><button type="button" data-ctype="in">수입</button></div>
     <ul class="clist" id="clist"></ul>
-    <p class="small">색 동그라미를 누르면 원하는 색을 고를 수 있고, 이름은 바로 고칠 수 있어요. 지출 카테고리에는 한 달 예산을 넣을 수 있어요.</p>
+    <p class="small">아이콘은 이름에 맞게 자동으로 골라져요. 아이콘을 누르면 다른 아이콘으로, 색 동그라미를 누르면 원하는 색으로 바꿀 수 있어요. 지출 카테고리에는 한 달 예산을 넣을 수 있어요.</p>
     <div class="addrow">
       <input type="color" class="sw" id="cNewColor" aria-label="새 카테고리 색"><input class="inp" type="text" id="cNew" maxlength="12" placeholder="새 카테고리 이름">
       <button type="button" class="btn-ghost" id="cAdd">추가</button>

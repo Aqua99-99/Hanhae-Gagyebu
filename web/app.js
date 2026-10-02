@@ -37,6 +37,85 @@ const LS='gagyebu.v1';
 let CATMAP={};
 function rebuildMap(){CATMAP={};for(const t of ['out','in'])for(const c of S.cats[t])CATMAP[c.id]={...c,type:t}}
 const col=id=>{const k=CATMAP[id];if(!k)return 'var(--p5)';return (typeof k.hex==='string'&&/^#[0-9a-fA-F]{6}$/.test(k.hex))?k.hex:`var(--p${(Number(k.c)||0)%PAL})`};
+/* ---------- 카테고리 아이콘 ----------
+   선으로 그린 아이콘(24×24). 카테고리 이름을 보고 어울리는 아이콘을 자동으로 골라요. 직접 바꿀 수도 있어요. */
+const ICONS={
+  food:['식비','<path d="M7 3v8M5 3v5a2 2 0 0 0 4 0V3M7 11v10"/><path d="M17 3c-2 1.5-3 4-3 7h3v11"/>'],
+  cafe:['카페','<path d="M4 9h12v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5z"/><path d="M16 11h2a2 2 0 0 1 0 4h-2"/><path d="M8 3c0 1.5 1 1.5 1 3M12 3c0 1.5 1 1.5 1 3"/>'],
+  snack:['간식','<path d="M12 4a8 8 0 1 0 8 8"/><circle cx="9" cy="10" r="1"/><circle cx="14" cy="14" r="1"/><circle cx="9" cy="15" r="1"/><path d="M15 3l1.5 1.5L18 3l1.5 1.5L21 3"/>'],
+  drink:['술','<path d="M6 3h9v6a4.5 4.5 0 0 1-9 0z"/><path d="M15 5h2a2 2 0 0 1 0 4h-2"/><path d="M10.5 13.5V21M7 21h7"/>'],
+  bread:['베이커리','<path d="M5 11a4 4 0 0 1 1-8h12a4 4 0 0 1 1 8v9H5z"/><path d="M9 11v9M15 11v9"/>'],
+  cart:['마트','<circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/><path d="M2 3h3l2.5 12h12l2-8H6.2"/>'],
+  bag:['쇼핑','<path d="M5 8h14l-1 13H6z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/>'],
+  shirt:['의류','<path d="M8 3l-5 3 2 5 3-1v11h8V10l3 1 2-5-5-3a4 4 0 0 1-8 0z"/>'],
+  shoe:['신발','<path d="M3 17v-6l5 1 3-4 4 3c2 1.5 4 2 6 2v4z"/><path d="M3 20h18"/>'],
+  sparkle:['화장품','<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/>'],
+  scissors:['미용','<circle cx="6" cy="7" r="3"/><circle cx="6" cy="17" r="3"/><path d="M8.5 8.5L20 19M8.5 15.5L20 5"/>'],
+  bus:['교통','<rect x="4" y="3" width="16" height="15" rx="3"/><path d="M4 11h16M8 18v3M16 18v3"/><circle cx="8" cy="14.5" r="1"/><circle cx="16" cy="14.5" r="1"/>'],
+  car:['자동차','<path d="M3 16v-4l2-5h14l2 5v4z"/><path d="M3 12h18"/><circle cx="7" cy="16.5" r="2"/><circle cx="17" cy="16.5" r="2"/>'],
+  fuel:['주유','<path d="M4 21V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16M3 21h12M4 10h10"/><path d="M14 8l3 3v6a2 2 0 0 0 4 0V9l-3-3"/>'],
+  taxi:['택시','<path d="M9 4h6l1 3"/><path d="M3 16v-4l2-5h14l2 5v4z"/><circle cx="7" cy="16.5" r="2"/><circle cx="17" cy="16.5" r="2"/>'],
+  train:['기차','<rect x="5" y="3" width="14" height="14" rx="3"/><path d="M5 10h14M9 21l1.5-4M15 21l-1.5-4"/><circle cx="9" cy="13.5" r="1"/><circle cx="15" cy="13.5" r="1"/>'],
+  plane:['여행','<path d="M10 3.5a1.5 1.5 0 0 1 3 0V9l8 5v2l-8-2.5V18l3 2v1.5L12 20l-4 1.5V20l3-2v-4.5L3 16v-2l7-5z"/>'],
+  home:['주거','<path d="M3 11l9-8 9 8"/><path d="M5 9.5V21h14V9.5"/><path d="M10 21v-6h4v6"/>'],
+  bulb:['공과금','<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z"/>'],
+  drop:['수도','<path d="M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11z"/>'],
+  flame:['가스','<path d="M12 3c1 4 5 5.5 5 10a5 5 0 0 1-10 0c0-2.5 1.5-4 2.5-5 .3 2 1.5 3 2.5 3-1-3 0-6 0-8z"/>'],
+  phone:['통신','<rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/>'],
+  wifi:['인터넷','<path d="M2 9a15 15 0 0 1 20 0M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0"/><circle cx="12" cy="19.5" r="1"/>'],
+  tv:['구독','<rect x="3" y="5" width="18" height="13" rx="2"/><path d="M8 21h8M10 9.5v5l4.5-2.5z"/>'],
+  music:['음악','<path d="M9 18V5l11-2v13"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/>'],
+  medical:['의료','<rect x="3" y="3" width="18" height="18" rx="4"/><path d="M12 8v8M8 12h8"/>'],
+  pill:['약','<rect x="2.5" y="8.5" width="19" height="7" rx="3.5" transform="rotate(-45 12 12)"/><path d="M9.5 9.5l5 5"/>'],
+  tooth:['치과','<path d="M7 3c-2.5 0-4 2-4 4.5 0 3 2 5 2.5 8.5.3 2.5 1 5 2.5 5s1.7-4 4-4 2.5 4 4 4 2.2-2.5 2.5-5C19 12.5 21 10.5 21 7.5 21 5 19.5 3 17 3c-2 0-3 1-5 1S9 3 7 3z"/>'],
+  shield:['보험','<path d="M12 3l8 3v6c0 4.5-3.5 8-8 9-4.5-1-8-4.5-8-9V6z"/><path d="M9 12l2 2 4-4"/>'],
+  book:['교육','<path d="M4 4.5A1.5 1.5 0 0 1 5.5 3H20v16H5.5A1.5 1.5 0 0 0 4 20.5z"/><path d="M4 20.5A1.5 1.5 0 0 0 5.5 22H20"/>'],
+  cap:['학원','<path d="M2 9l10-5 10 5-10 5z"/><path d="M6 11v5c3 2.5 9 2.5 12 0v-5M22 9v6"/>'],
+  film:['영화','<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 3v18M17 3v18M3 8h4M3 12h4M3 16h4M17 8h4M17 12h4M17 16h4"/>'],
+  ticket:['공연','<path d="M3 7a2 2 0 0 0 2-2h14a2 2 0 0 0 2 2v2a3 3 0 0 0 0 6v2a2 2 0 0 0-2 2H5a2 2 0 0 0-2-2v-2a3 3 0 0 0 0-6z"/><path d="M14 5v14" stroke-dasharray="2 2"/>'],
+  game:['게임','<path d="M6 8h12a4 4 0 0 1 3.9 4.8l-1 4.4A2.5 2.5 0 0 1 16.4 18L14 15h-4l-2.4 3a2.5 2.5 0 0 1-4.5-.8l-1-4.4A4 4 0 0 1 6 8z"/><path d="M7.5 11v3M6 12.5h3"/><circle cx="16" cy="11.5" r=".8"/><circle cx="17.5" cy="13.5" r=".8"/>'],
+  dumbbell:['운동','<path d="M6 7v10M3 9.5v5M18 7v10M21 9.5v5M6 12h12"/>'],
+  bike:['자전거','<circle cx="6" cy="16" r="3.5"/><circle cx="18" cy="16" r="3.5"/><path d="M6 16l4-8h5l3 8M10 8l2 8M13 5h3"/>'],
+  camera:['사진','<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>'],
+  laptop:['전자기기','<rect x="4" y="4" width="16" height="11" rx="1.5"/><path d="M2 19h20l-2-4H4z"/>'],
+  tool:['수리','<path d="M14.5 6.5a4 4 0 0 0 5 5l-9 9a2.1 2.1 0 0 1-3-3l9-9a4 4 0 0 1-2-2z"/>'],
+  leaf:['꽃','<path d="M5 19c0-8 5-14 15-15-1 10-7 15-15 15z"/><path d="M5 19c3-4 6-7 10-9"/>'],
+  gift:['선물','<rect x="3" y="8" width="18" height="5" rx="1"/><path d="M5 13v8h14v-8M12 8v13"/><path d="M12 8C10 4 6 4 6 6.5S10 8 12 8zM12 8c2-4 6-4 6-1.5S14 8 12 8z"/>'],
+  party:['경조사','<path d="M3 21l5-14 9 9z"/><path d="M14 4l1 2M19 6l-2 1M20 11l-2-.5M11 3l.5 2"/>'],
+  users:['모임','<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6.5 6.5 0 0 1 3.5 6"/>'],
+  heart:['기부','<path d="M12 20s-8-4.7-8-10.5A4.5 4.5 0 0 1 12 7a4.5 4.5 0 0 1 8 2.5C20 15.3 12 20 12 20z"/>'],
+  paw:['반려동물','<circle cx="6" cy="10" r="2"/><circle cx="10" cy="6" r="2"/><circle cx="14" cy="6" r="2"/><circle cx="18" cy="10" r="2"/><path d="M12 11c-3 0-6 4-6 6.5S8 21 12 19c4 2 6 1 6-1.5S15 11 12 11z"/>'],
+  baby:['육아','<circle cx="12" cy="12" r="9"/><path d="M9 10h.01M15 10h.01M9.5 15a3.5 3.5 0 0 0 5 0"/><path d="M12 3c-1 1.5 0 3 1.5 3"/>'],
+  receipt:['세금','<path d="M5 3h14v18l-2.5-1.5L14 21l-2-1.5L10 21l-2.5-1.5L5 21z"/><path d="M9 8h6M9 12h6M9 16h3"/>'],
+  card:['카드','<rect x="2.5" y="5" width="19" height="14" rx="2"/><path d="M2.5 10h19M6 15h4"/>'],
+  piggy:['저축','<path d="M5 11a7 6 0 0 1 12-3l3-1-.5 3.5A6 6 0 0 1 20 13v2h-2l-1 3h-3v-2H9v2H6l-1-3.5A5 5 0 0 1 5 11z"/><circle cx="15" cy="11" r=".8"/><path d="M2 10.5c0 1 1 1.5 2 1.5"/>'],
+  chart:['투자','<path d="M3 21h18"/><path d="M5 17l5-5 3 3 6-7"/><path d="M15 8h4v4"/>'],
+  wallet:['월급','<path d="M3 7a2 2 0 0 1 2-2h13v4"/><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M16 13.5h2"/>'],
+  coins:['용돈','<ellipse cx="9" cy="7" rx="6" ry="3"/><path d="M3 7v4c0 1.7 2.7 3 6 3s6-1.3 6-3V7"/><path d="M9 14v3c0 1.7 2.7 3 6 3s6-1.3 6-3v-4c0-1.6-2.4-2.9-5.5-3"/>'],
+  percent:['이자','<path d="M19 5L5 19"/><circle cx="7" cy="7" r="2.5"/><circle cx="17" cy="17" r="2.5"/>'],
+  refund:['환급','<path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 8v8M9.5 10.5c0-1 1-1.8 2.5-1.8s2.5.8 2.5 1.8-1 1.5-2.5 1.5-2.5.6-2.5 1.6 1 1.7 2.5 1.7 2.5-.7 2.5-1.7"/>'],
+  briefcase:['부수입','<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2M3 13h18"/>'],
+  tag:['기타','<path d="M3 3h8l10 10-8 8L3 11z"/><circle cx="7.5" cy="7.5" r="1.5"/>'],
+  dots:['그 밖에','<circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/>']
+};
+const ICON_KW=[
+  ['cafe',['카페','커피','음료','디저트','스타벅스']],['snack',['간식','과자','편의점']],['drink',['술','회식','맥주','주류','바']],['bread',['빵','베이커리']],
+  ['food',['식비','음식','외식','식사','밥','배달','식당','점심','저녁','식료']],['cart',['마트','장보기','생필품','생활용품','생활']],
+  ['shirt',['의류','옷','패션']],['shoe',['신발']],['bag',['쇼핑','잡화','가방','온라인']],['sparkle',['화장품','뷰티','코스메틱']],['scissors',['미용','헤어','네일']],
+  ['taxi',['택시']],['fuel',['주유','기름']],['car',['차량','자동차','주차','하이패스','통행']],['train',['기차','ktx','srt','철도']],['bus',['교통','대중교통','버스','지하철']],['plane',['여행','항공','숙소','호텔']],
+  ['bulb',['공과금','전기']],['drop',['수도']],['flame',['가스','난방']],['home',['주거','월세','관리비','집','전세','대출']],['phone',['통신','휴대폰','핸드폰']],['wifi',['인터넷']],
+  ['tv',['구독','넷플릭스','유튜브','ott','왓챠','티빙']],['music',['음악','멜론','스포티파이']],
+  ['tooth',['치과']],['pill',['약','약국']],['medical',['의료','병원','건강']],['shield',['보험']],
+  ['cap',['학원','과외']],['book',['교육','책','도서','공부','강의','자기계발']],['film',['영화']],['ticket',['공연','문화','전시','콘서트']],['game',['게임','취미','여가']],['dumbbell',['운동','헬스','필라테스','요가']],['bike',['자전거']],['camera',['사진']],['laptop',['전자','기기','가전','컴퓨터']],['tool',['수리','정비']],['leaf',['꽃','식물']],
+  ['gift',['선물']],['party',['경조사','축의','부의','생일']],['users',['모임','회비','동호회']],['heart',['기부','후원','헌금']],['paw',['반려','펫','강아지','고양이','동물']],['baby',['육아','아이','유아','아기','기저귀']],
+  ['receipt',['세금','과태료','공과']],['card',['카드값','할부']],['piggy',['저축','적금','예금']],['chart',['투자','주식','코인','펀드']],
+  ['coins',['용돈']],['briefcase',['부수입','알바','아르바이트','부업','외주','사업']],['percent',['이자','배당']],['refund',['환급','환불','캐시백']],
+  ['tag',['기타']],['wallet',['월급','급여','상여','보너스','연봉','수입']]
+];
+function suggestIcon(name){const n=String(name||'').replace(/\s+/g,'').toLowerCase();for(const [ic,kws] of ICON_KW)if(kws.some(k=>n.includes(k)))return ic;return null}
+function iconOf(id){const k=CATMAP[id];if(!k)return 'tag';return (k.ic&&ICONS[k.ic])?k.ic:(suggestIcon(k.name)||'tag')}
+function iconSvg(ic){return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${(ICONS[ic]||ICONS.tag)[1]}</svg>`}
+function catIcon(id,cls){return `<i class="ci${cls?' '+cls:''}" style="--c:${col(id)}">${iconSvg(iconOf(id))}</i>`}
 const palHex=i=>(getComputedStyle(document.documentElement).getPropertyValue('--p'+(i%PAL)).trim()||'#8f97a8');
 const hexOf=k=>/^#[0-9a-f]{6}$/i.test(k.hex||'')?k.hex:palHex(k.c);
 function nextPal(cats){const used=new Set(cats.map(x=>x.c%PAL));for(let i=0;i<PAL;i++)if(!used.has(i))return i;return cats.length%PAL}
@@ -80,6 +159,7 @@ function cleanCats(c){
       const id=sid(k&&k.id);if(!id||seen.has(id))return null;seen.add(id);
       const o={id,name:sstr(k.name,20).trim()||'카테고리',c:sint(k.c,0,9)??0};
       if(typeof k.hex==='string'&&HEX_RE.test(k.hex))o.hex=k.hex;
+      if(typeof k.ic==='string'&&ICONS[k.ic])o.ic=k.ic;
       return o;
     }).filter(Boolean);
     if(!out[t].length)out[t]=JSON.parse(JSON.stringify(DEFAULT_CATS[t]));
@@ -394,7 +474,7 @@ function entryRow(e,withDate){
   if(e.type==='out'&&e.pay&&e.pay!=='cash')tags+=`<span class="tag">${PAY_NAME[e.pay]}${e.inst>1?` ${e.inst}개월`:''}</span>`;
   if(e.part)tags+=`<span class="tag">할부 ${e.part}/${e.parts}</span>`;
   if(e.fid)tags+=`<span class="tag">고정</span>`;
-  return `<div class="entry" data-edit="${esc(e.id)}" tabindex="0" role="button">${d}<i class="edot" style="background:${col(e.cat)}"></i><span class="m">${esc(e.memo||cname(e.cat))}${withDate?'':` <small>${esc(cname(e.cat))}</small>`}${tags}</span><span class="a ${e.type==='in'?'pos':'neg'}">${e.type==='in'?'+':'-'}${won(e.amount)}</span>${del}</div>`;
+  return `<div class="entry" data-edit="${esc(e.id)}" tabindex="0" role="button">${d}${catIcon(e.cat,'sm')}<span class="m">${esc(e.memo||cname(e.cat))}${withDate?'':` <small>${esc(cname(e.cat))}</small>`}${tags}</span><span class="a ${e.type==='in'?'pos':'neg'}">${e.type==='in'?'+':'-'}${won(e.amount)}</span>${del}</div>`;
 }
 function monthTotals(list,type){
   const cats=type==='all'?[...S.cats.in,...S.cats.out]:S.cats[type];
@@ -478,7 +558,7 @@ function render(){
   $('emptyBox').innerHTML=list.length?'':`<div class="empty"><p>${S.year}년에 기록이 없어요. 첫 수입이나 지출을 기록하거나 예시 데이터로 둘러보세요.</p>
     <div class="row"><button class="btn-add" data-act="add">+ 기록</button><button class="btn-ghost" data-act="sample">예시 데이터 넣기</button></div></div>`;
 
-  $('legend').innerHTML=curCats().map(k=>`<button class="chip" data-cat="${k.id}" aria-pressed="${S.cat===k.id}"><i style="background:${col(k.id)}"></i>${esc(k.name)}</button>`).join('')+
+  $('legend').innerHTML=curCats().map(k=>`<button class="chip" data-cat="${k.id}" aria-pressed="${S.cat===k.id}">${catIcon(k.id,'xs')}${esc(k.name)}</button>`).join('')+
     `<button class="chip edit" data-act="cats">+ 카테고리 편집</button>`;
 
   $('grid12').innerHTML=mt.map((t,i)=>{
@@ -493,7 +573,7 @@ function render(){
   const typeTot=ty=>ty==='in'?f.in:f.out;
   $('bigcard').innerHTML=(AV&&avgBadge(AV,S.month)?`<div class="bigbadge">${avgBadge(AV,S.month)}<span>1~${AV.lastM+1}월 평균 ${won(AV.avg)} 대비</span></div>`:'')+donut(t,(S.month+1)+'월',280,34)+
     `<div class="flow"><div><span>수입</span><b class="pos">${won(f.in)}</b></div><div><span>지출</span><b class="neg">${won(f.out)}</b></div><div><span>남은 돈</span><b>${swon(bal)}</b></div><div><span>저축률</span><b class="${rateCls(rateOf(f.in,f.out))}">${rateTxt(rateOf(f.in,f.out))}</b></div><div class="span2"><span>총 금액 (수입+지출)</span><b>${won(f.in+f.out)}</b></div></div>`+
-    (tt?`<ul class="mlist">${rows.map(k=>`<li><button data-cat="${k.id}" aria-pressed="${S.cat===k.id}"><i style="background:${col(k.id)}"></i><span class="nm">${esc(k.name)}</span><span class="pc">${Math.round(t[k.id]/Math.max(1,typeTot(CATMAP[k.id].type))*100)}%</span><span class="am ${S.type==='all'?(CATMAP[k.id].type==='in'?'pos':'neg'):''}">${S.type==='all'?(CATMAP[k.id].type==='in'?'+':'-'):''}${won(t[k.id])}</span></button></li>`).join('')}</ul>`
+    (tt?`<ul class="mlist">${rows.map(k=>`<li><button data-cat="${k.id}" aria-pressed="${S.cat===k.id}">${catIcon(k.id)}<span class="nm">${esc(k.name)}</span><span class="pc">${Math.round(t[k.id]/Math.max(1,typeTot(CATMAP[k.id].type))*100)}%</span><span class="am ${S.type==='all'?(CATMAP[k.id].type==='in'?'pos':'neg'):''}">${S.type==='all'?(CATMAP[k.id].type==='in'?'+':'-'):''}${won(t[k.id])}</span></button></li>`).join('')}</ul>`
         :`<p class="hint" style="text-align:center">${S.month+1}월 ${TYPE_NAME[S.type]} 기록이 아직 없어요.</p>`);
   const selTab=$('tabs').querySelector('[aria-selected="true"]');
   if(selTab&&selTab.scrollIntoView)selTab.scrollIntoView({block:'nearest',inline:'center'});
@@ -593,7 +673,7 @@ function renderPanel(list,mt,flow){
     const types=S.type==='all'?['in','out']:[S.type];
     const section=ty=>{const cs=S.cats[ty],max=Math.max(1,...cs.map(k=>ct[k.id]||0));
       return `<p class="sec-title">${TYPE_NAME[ty]} 카테고리별</p><ul class="cat-rows" style="margin-bottom:14px">${cs.map(k=>`<li><button data-cat="${k.id}">
-        <div class="r1"><i style="background:${col(k.id)}"></i><span class="nm">${esc(k.name)}</span><span class="am">${won(ct[k.id]||0)}</span></div>
+        <div class="r1">${catIcon(k.id)}<span class="nm">${esc(k.name)}</span><span class="am">${won(ct[k.id]||0)}</span></div>
         <div class="track"><b style="width:${(ct[k.id]||0)/max*100}%;background:${col(k.id)}"></b></div></button></li>`).join('')}</ul>`};
     const cb=currentBalance({entries:S.entries,settings:S.settings});
     let xo=0,xi=0;for(const e of list)if(e.type==='xfer'){if(e.dir==='out')xo+=e.amount;else xi+=e.amount}
@@ -627,7 +707,7 @@ function renderPanel(list,mt,flow){
   list.filter(e=>e.cat===S.cat).sort((a,b)=>a.date<b.date?-1:1).forEach(e=>byMonth[+e.date.slice(5,7)-1].push(e));
   const nm=esc(cname(S.cat));
   P.innerHTML=`<button class="p-back" data-act="all">‹ 전체 보기</button>
-    <div class="p-head"><span class="dot" style="background:${col(S.cat)}"></span><h2>${nm}</h2></div>
+    <div class="p-head">${catIcon(S.cat,'lg')}<h2>${nm}</h2></div>
     <div class="p-total ${CATMAP[S.cat].type==='in'?'pos':''}">${won(catTot)}</div>
     <p class="p-note">${S.year}년 ${TYPE_NAME[CATMAP[S.cat].type]} 합계${avg?` · 기록된 달 평균 ${won(avg)}`:''}</p>
     <svg class="bars" viewBox="0 0 ${W} ${H}" role="img" aria-label="${nm} 월별 금액">${bars}</svg>
@@ -735,7 +815,7 @@ function renderPick(){
   if(!isX){
     const cats=S.cats[ft];
     if(!cats.some(k=>k.id===S.pickCat))S.pickCat=cats[0].id;
-    $('fCats').innerHTML=cats.map(k=>`<button type="button" role="radio" aria-checked="${S.pickCat===k.id}" data-pick="${k.id}"><i style="background:${col(k.id)}"></i>${esc(k.name)}</button>`).join('');
+    $('fCats').innerHTML=cats.map(k=>`<button type="button" role="radio" aria-checked="${S.pickCat===k.id}" data-pick="${k.id}">${catIcon(k.id,'xs')}${esc(k.name)}</button>`).join('');
   }
   $('fDir').querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.fdir===S.fDir));
   $('fPay').querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.fpay===S.fPay));
@@ -1581,17 +1661,22 @@ function renderCats(){
   const cats=S.cats[S.cType];
   $('clist').innerHTML=cats.map(k=>{
     const n=S.entries.filter(e=>e.cat===k.id).length;
-    return `<li><input type="color" class="sw" data-sw="${k.id}" value="${hexOf(k)}" aria-label="${esc(k.name)} 색 고르기">
+    return `<li><button type="button" class="ic-btn" data-icpick="${k.id}" title="아이콘 바꾸기" aria-label="${esc(k.name)} 아이콘 바꾸기">${catIcon(k.id)}</button><input type="color" class="sw" data-sw="${k.id}" value="${hexOf(k)}" aria-label="${esc(k.name)} 색 고르기">
       <input class="inp" data-rn="${k.id}" value="${esc(k.name)}" maxlength="12" aria-label="카테고리 이름">
       ${S.cType==='out'?`<input class="inp bud" type="number" min="0" step="1000" inputmode="numeric" data-bud="${k.id}" value="${(S.settings.budgets||{})[k.id]||''}" placeholder="월 예산" aria-label="${esc(k.name)} 한 달 예산">`:''}
       <span class="cnt">${n}건</span>
-      <button type="button" class="x" data-cdel="${k.id}" ${cats.length<=1?'disabled':''} aria-label="${esc(k.name)} 삭제">✕</button></li>`;
+      <button type="button" class="x" data-cdel="${k.id}" ${cats.length<=1?'disabled':''} aria-label="${esc(k.name)} 삭제">✕</button></li>`+(k.id===icPickFor?`<li class="ic-grid-row"><div class="ic-grid">${Object.keys(ICONS).map(ic=>`<button type="button" class="ic-opt${iconOf(icPickFor)===ic?' on':''}" data-icset="${ic}" title="${ICONS[ic][0]}" aria-label="${ICONS[ic][0]}"><i class="ci" style="--c:${col(icPickFor)}">${iconSvg(ic)}</i><span>${ICONS[ic][0]}</span></button>`).join('')}</div></li>`:'');
   }).join('');
   $('cNew').placeholder=S.cType==='in'?'예: 이자':'예: 여가';
   if(!$('cNew').value)$('cNewColor').value=palHex(nextPal(cats));
 }
 $('cType').addEventListener('click',e=>{const b=e.target.closest('[data-ctype]');if(b){S.cType=b.dataset.ctype;$('cErr').textContent='';renderCats()}});
+let icPickFor=null;
 $('clist').addEventListener('click',e=>{
+  const ip=e.target.closest('[data-icpick]');
+  if(ip){icPickFor=icPickFor===ip.dataset.icpick?null:ip.dataset.icpick;renderCats();return}
+  const is=e.target.closest('[data-icset]');
+  if(is&&icPickFor){const k=S.cats[S.cType].find(x=>x.id===icPickFor);if(k){k.ic=is.dataset.icset;icPickFor=null;rebuildMap();renderCats();persist();render()}return}
   const d=e.target.closest('[data-cdel]');
   if(d){
     const cats=S.cats[S.cType],id=d.dataset.cdel,rest=cats.filter(x=>x.id!==id);
