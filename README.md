@@ -17,10 +17,24 @@
 
 ![캘린더 화면](docs/screenshots/calendar.png)
 
-### 1~12월 도넛 차트와 연간 요약
-바깥 링은 수입, 안쪽 링은 지출 카테고리예요. 가운데에 그 달의 남은 돈이, 오른쪽 위에 누적 월평균 대비 ↑↓가 표시돼요. 왼쪽 패널에서는 연간 수입·지출·저축률과 월별 저축률 그래프를 볼 수 있어요.
+### 1~12월 도넛 차트
+바깥 링은 수입, 안쪽 링은 지출 카테고리예요. 가운데에 그 달의 남은 돈이, 오른쪽 위에 누적 월평균 대비 ↑↓가 표시되고, 아래에 수입·지출·저축률이 정리돼요.
 
-![연간 도넛 차트 화면](docs/screenshots/yearly-donuts.png)
+<p align="center"><img src="docs/screenshots/yearly-donuts.png" alt="연간 도넛 차트" width="80%"></p>
+
+### 카테고리 상세
+카테고리를 누르면 1~12월 내역과 월별 막대 그래프가 나오고, 캘린더와 도넛 차트도 그 카테고리 기준으로 바뀌어요.
+
+![카테고리 상세 화면](docs/screenshots/category.png)
+
+### 모바일과 화이트·블랙 모드
+폰에서도 그대로 쓸 수 있게 화면이 정리되고, 화이트·블랙 모드는 버튼 하나로 바꿀 수 있어요.
+
+<p align="center"><img src="docs/screenshots/mobile.png" alt="모바일 화면 (블랙·화이트)" width="70%"></p>
+
+![화이트 모드](docs/screenshots/light-mode.png)
+
+> 화면의 금액은 모두 예시 데이터예요.
 
 ---
 
