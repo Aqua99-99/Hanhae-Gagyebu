@@ -1876,7 +1876,7 @@ if(INAPP)showInapp(false);
 
 /* ---------- 영수증 사진으로 입력 (폰 안에서 글자 인식, 무료) ----------
    사진은 어디로도 보내지 않고 이 기기에서만 읽어요. 처음 한 번 한국어 인식 데이터를 받아요. */
-let RC_RAW='',rcWorker=null,rcIdle=null,rcBusy=false;
+let RC_RAW='',RC_CONF={},rcWorker=null,rcIdle=null,rcBusy=false;
 function loadTesseract(){
   if(window.Tesseract)return Promise.resolve();
   return new Promise((res,rej)=>{const sc=document.createElement('script');sc.src='vender/tesseract/tesseract.min.js';sc.onload=res;sc.onerror=()=>rej(new Error('load'));document.head.appendChild(sc)});
@@ -1972,9 +1972,9 @@ function receiptItems(lines){
   let en=lines.findIndex((l,i)=>i>st&&/(합\s*계|면\s*세|과\s*세|부\s*가\s*세|소\s*계|총\s*액|결\s*제|받\s*을)/.test(l));if(en<0)en=Math.min(lines.length,st+30);
   const out=[];
   for(const l of lines.slice(st+1,en)){
-    if(!/[가-힣]|[A-Za-z]{2,}/.test(l))continue;
-    let t=l.replace(/^\s*\d{1,3}[.)]?\s+/,'').replace(/\b\d{6,}\b/g,' ').replace(/(\d{1,3}(?:[,.]\d{3})+|\b\d+\b|[#*@])/g,' ').replace(/\s+/g,' ').trim();
-    if(!/[가-힣]|[A-Za-z]{2,}/.test(t)||/(단\s*가|수\s*량|금\s*액|할\s*인|쿠\s*폰)/.test(t))continue;
+    if(!/[가-힣]/.test(l))continue;
+    let t=l.replace(/^\s*[A-Za-z]?[0-9OoIl]{2,3}[.)]?\s*(?=[가-힣(A-Za-z])/,'').replace(/\b\d{6,}\b/g,' ').replace(/(\d{1,3}(?:[,.]\d{3})+|\b\d+\b|[#*@])/g,' ').replace(/\s+/g,' ').trim();
+    if(!/[가-힣]/.test(t)||/(단\s*가|수\s*량|금\s*액|할\s*인|쿠\s*폰|면\s*세|과\s*세)/.test(t))continue;
     t=t.slice(0,20);if(!out.includes(t))out.push(t);
     if(out.length>=8)break;
   }
@@ -2016,8 +2016,12 @@ function parseReceipt(text){
   // 가게 이름: 영수증 맨 위의 크게 찍힌 이름을 먼저, 없으면 '가맹점명/상호' 줄
   let store='';
   const skip=/(영수증|매출전표|전표|고객용|카드|사업자|사업|등록|대표|주\s*소|전화|TEL|번호|일시|날짜|판매일|금액|합계|부가세|과세|품명|상품명|단가|수량|POS|포스|감사|환영|교환|환불|반품|지참|광역시|특별시|\d{2,}[-:]\d{2,})/i;
-  store=(lines.slice(0,3).find(l=>/[가-힣]{2,}/.test(l)&&!skip.test(l)&&money(l).length===0&&!/\d{3,}/.test(l))||'');
-  if(!store){for(const l of lines){const mm=l.match(/(?:상\s*호|가\s*맹\s*점\s*명?|매\s*장\s*명|점\s*포\s*명)\s*[:：;]?\s*(.+)/);if(mm&&/[가-힣]{2,}/.test(mm[1])){store=mm[1];break}}}
+  const headL=lines.slice(0,3).find(l=>/[가-힣]{2,}/.test(l)&&!skip.test(l)&&money(l).length===0&&!/\d{3,}/.test(l))||'';
+  let labL='',labV='';
+  for(const l of lines){const mm=l.match(/(?:상\s*호|가\s*맹\s*점\s*명?|매\s*장\s*명|점\s*포\s*명)\s*[:：;]?\s*(.+)/);if(mm&&/[가-힣]{2,}/.test(mm[1])){labL=l;labV=mm[1];break}}
+  // 위쪽 이름과 '가맹점명' 줄이 다르게 읽혔으면, AI가 더 확신한 쪽을 써요
+  const cf=t=>(RC_CONF&&RC_CONF[t.trim()])||0;
+  if(headL&&labV){store=cf(labL)>cf(headL)+0.02?labV:headL}else store=headL||labV;
   if(!store)store=(lines.slice(0,6).find(l=>/[가-힣]{2,}/.test(l)&&!skip.test(l)&&money(l).length===0)||'');
   store=store.replace(/\(\s*주\s*\)|㈜|주식회사/g,'').replace(/[()（）]/g,' ').replace(/[^\w가-힣&\s.-]/g,'').replace(/\s+/g,' ').trim().slice(0,30);
   if(!/[가-힣]{2,}/.test(store))store='';
@@ -2140,7 +2144,9 @@ async function paddleRead(file){
   const lines=[];
   for(const it of items){const L=lines[lines.length-1];
     if(L&&Math.abs(it.cy-L.cy)<.55*Math.min(it.h,L.h))L.parts.push(it);else lines.push({cy:it.cy,h:it.h,parts:[it]})}
-  return lines.map(L=>L.parts.sort((a,b)=>a.x0-b.x0).map(p=>p.text).join(' ')).join('\n');
+  RC_CONF={};
+  const outLines=lines.map(L=>{const ps=L.parts.sort((a,b)=>a.x0-b.x0);const t=ps.map(p=>p.text).join(' ');RC_CONF[t.trim()]=ps.reduce((a,p)=>a+p.conf,0)/ps.length;return t});
+  return outLines.join('\n');
 }
 function rcAltNames(text){
   const lines=String(text).split('\n').map(l=>l.trim()).filter(Boolean),out=[];
@@ -2193,7 +2199,7 @@ $('rcFile').addEventListener('change',async e=>{
       }
       note='AI가 글자를 찾지 못해 간단 인식으로 다시 읽었어요.';
     }catch(err){note=`AI 인식을 쓰지 못해 간단 인식으로 읽었어요. [원인: ${String(err&&err.message||err).slice(0,120)}]`;try{console.warn('PaddleOCR',err)}catch(e){}}
-    RC_SRC=note?'fallback':'device';window.__rcNote=note;
+    RC_SRC=note?'fallback':'device';window.__rcNote=note;RC_CONF={};
     const canvas=await rcPrepare(f);
     const w=await getRcWorker();
     const {data}=await w.recognize(canvas);
