@@ -296,6 +296,7 @@ document.addEventListener('visibilitychange',()=>{if(document.visibilityState===
 /* ---------- 가계부 목록 ---------- */
 function goHome(){syncCur();S.cur=null;$('ledgerView').hidden=true;$('home').hidden=false;renderHome();window.scrollTo(0,0)}
 function openLedger(id){
+  try{wakeOcr()}catch(e){}
   if(!LEDGERS[id])LEDGERS[id]=normLedger(null);
   runFixedFor(id);
   S.cur=id;S.entries=LEDGERS[id].entries;S.cats=LEDGERS[id].cats;S.settings=LEDGERS[id].settings;S.cat=null;S.day=null;S.type='all';
@@ -1253,7 +1254,13 @@ async function nlAI(text){
   return items.length?{items}:{err:'empty'};
 }
 let QITEMS=[],qBusy=false;
+function memoDatalist(){
+  let dl=$('memoList');if(!dl){dl=document.createElement('datalist');dl.id='memoList';document.body.appendChild(dl)}
+  const cnt={};for(const e of S.entries||[])if(e.memo)cnt[e.memo]=(cnt[e.memo]||0)+1;
+  dl.innerHTML=Object.entries(cnt).sort((a,b)=>b[1]-a[1]).slice(0,60).map(([m])=>`<option value="${esc(m)}">`).join('');
+}
 function renderQ(msg,src){
+  if(!msg)memoDatalist();
   const box=$('qOut');
   if(msg){box.innerHTML=`<p class="q-msg">${msg}</p>`;return}
   if(!QITEMS.length){box.innerHTML='';return}
@@ -1263,13 +1270,14 @@ function renderQ(msg,src){
       <select class="inp" data-q="type" data-i="${i}"><option value="out" ${q.type==='out'?'selected':''}>지출</option><option value="in" ${q.type==='in'?'selected':''}>수입</option><option value="xfer" ${q.type==='xfer'?'selected':''}>이체</option></select>
       ${q.type==='xfer'?`<select class="inp" data-q="dir" data-i="${i}"><option value="out" ${q.dir==='out'?'selected':''}>보냄</option><option value="in" ${q.dir==='in'?'selected':''}>받음</option></select><select class="inp" data-q="peer" data-i="${i}">${peerOpts(q.peer)}</select>`
         :`<select class="inp" data-q="cat" data-i="${i}">${catOpts(q.type,q.cat)}</select>`}
-      <input type="text" class="inp q-memo" data-q="memo" data-i="${i}" value="${esc(q.memo)}" placeholder="내용">
+      <input type="text" class="inp q-memo" data-q="memo" data-i="${i}" value="${esc(q.memo)}" placeholder="내용" list="memoList">
       ${q.type==='out'?`<select class="inp" data-q="pay" data-i="${i}"><option value="cash" ${q.pay==='cash'?'selected':''}>현금·계좌</option><option value="debit" ${q.pay==='debit'?'selected':''}>체크</option><option value="credit" ${q.pay==='credit'?'selected':''}>신용${q.inst>1?` ${q.inst}개월`:''}</option></select>`:''}
       <input type="number" class="inp q-amt" data-q="amount" data-i="${i}" value="${q.amount}" inputmode="numeric" aria-label="금액">
       <button type="button" class="x" data-qdel="${i}" aria-label="빼기">✕</button>
+      ${q.alts&&q.alts.length?`<div class="q-alts"><span>가게 이름 후보</span>${q.alts.map(n=>`<button type="button" class="chip" data-qalt="${i}" data-name="${esc(n)}">${esc(n)}</button>`).join('')}</div>`:''}
     </div>`).join('')}</div>
     ${src==='receipt'&&RC_RAW?`<details class="rc-raw"><summary>영수증에서 읽은 글자 보기</summary><pre>${esc(RC_RAW)}</pre></details>`:''}
-    <div class="q-act"><span class="small">${src==='ai'?'Claude가 정리했어요.':src==='receipt'?'영수증에서 읽었어요. 금액과 가게 이름을 꼭 확인해 주세요.':'이렇게 이해했어요.'} 맞는지 확인하고 추가해 주세요.</span>
+    <div class="q-act"><span class="small">${src==='ai'?'Claude가 정리했어요.':src==='receipt'?(RC_SRC==='ai'?'AI(PaddleOCR)가 영수증을 읽었어요. 금액과 이름을 한 번만 확인해 주세요.':(window.__rcNote||'영수증에서 읽었어요.')+' 금액과 가게 이름을 꼭 확인해 주세요.'):'이렇게 이해했어요.'} 맞는지 확인하고 추가해 주세요.</span>
       ${src==='local'&&AI_ON?'<button type="button" class="lnk" id="qAI">Claude에게 다시 맡기기</button>':''}
       <span class="spacer"></span><button type="button" class="btn-ghost" id="qCancel">취소</button><button type="button" class="btn-add" id="qAdd">${QITEMS.length}건 추가</button></div>`;
 }
@@ -1296,6 +1304,8 @@ $('qOut').addEventListener('change',e=>{
   else q[k]=t.value;
 });
 $('qOut').addEventListener('click',e=>{
+  const al=e.target.closest('[data-qalt]');
+  if(al){const q=QITEMS[+al.dataset.qalt];if(q){const prev=q.memo;q.memo=al.dataset.name;q.alts=(q.alts||[]).filter(n=>n!==q.memo);if(prev&&prev!=='영수증'&&!q.alts.includes(prev))q.alts.unshift(prev);const c=suggestCat('out',q.memo,'');if(c!==fallbackCat('out'))q.cat=c;renderQ(null,'receipt')}return}
   const d=e.target.closest('[data-qdel]');
   if(d){QITEMS.splice(+d.dataset.qdel,1);renderQ(null,'local');return}
   if(e.target.id==='qCancel'){QITEMS=[];renderQ()}
@@ -1930,7 +1940,46 @@ function rcPrepare(file){
     img.src=url;
   });
 }
+// 가게 이름 다시 읽기: '가맹점명' 줄과 영수증 맨 위 줄을 크게 확대해서 한 줄 모드로 다시 읽어요
+async function rcStoreNames(w,canvas,data){
+  const lines=(data&&data.lines)||[];if(!lines.length)return [];
+  const H=canvas.height,picks=[];
+  const lab=lines.find(l=>/(가\s*맹|상\s*호)/.test(l.text||''));
+  if(lab&&lab.bbox)picks.push({b:lab.bbox,label:true});
+  lines.filter(l=>l.bbox&&l.bbox.y1<H*.18&&(l.text||'').trim().length>=2).slice(0,2).forEach(l=>picks.push({b:l.bbox,label:false}));
+  const out=[];
+  try{await w.setParameters({tessedit_pageseg_mode:'7'})}catch(e){}
+  for(const p of picks){
+    const pad=8,x0=Math.max(0,p.b.x0-pad),y0=Math.max(0,p.b.y0-pad),bw=Math.min(canvas.width,p.b.x1+pad)-x0,bh=Math.min(H,p.b.y1+pad)-y0;
+    if(bw<20||bh<8)continue;
+    const z=Math.min(4,Math.max(1.5,72/bh));
+    const c=document.createElement('canvas');c.width=Math.round(bw*z);c.height=Math.round(bh*z);
+    const x=c.getContext('2d');x.imageSmoothingQuality='high';x.fillStyle='#fff';x.fillRect(0,0,c.width,c.height);x.drawImage(canvas,x0,y0,bw,bh,0,0,c.width,c.height);
+    try{
+      const r=await w.recognize(c);let t=(r.data&&r.data.text||'').replace(/\s+/g,' ').trim();
+      if(p.label)t=t.replace(/^.*?(가\s*맹\s*점\s*명?|상\s*호)\s*[:：;]?\s*/,'');
+      t=t.replace(/\(\s*주\s*\)|㈜|주식회사/g,'').replace(/[()（）]/g,' ').replace(/[^\w가-힣&\s.-]/g,'').replace(/\s+/g,' ').trim().slice(0,30);
+      if(/[가-힣]{2,}/.test(t)&&!/(사업자|대표|주소|전화|영수증)/.test(t)&&!out.includes(t))out.push(t);
+    }catch(e){}
+  }
+  try{await w.setParameters({tessedit_pageseg_mode:'6'})}catch(e){}
+  return out;
+}
 // 읽은 글자에서 날짜·가게·합계·결제수단을 골라내요
+// 상품명: '상품명/품명' 머리줄과 '합계/면세/과세' 줄 사이에서 글자가 있는 줄만 골라요
+function receiptItems(lines){
+  const st=lines.findIndex(l=>/(상\s*품\s*명|품\s*명|품\s*목|메\s*뉴|내\s*역)/.test(l));if(st<0)return [];
+  let en=lines.findIndex((l,i)=>i>st&&/(합\s*계|면\s*세|과\s*세|부\s*가\s*세|소\s*계|총\s*액|결\s*제|받\s*을)/.test(l));if(en<0)en=Math.min(lines.length,st+30);
+  const out=[];
+  for(const l of lines.slice(st+1,en)){
+    if(!/[가-힣]|[A-Za-z]{2,}/.test(l))continue;
+    let t=l.replace(/^\s*\d{1,3}[.)]?\s+/,'').replace(/\b\d{6,}\b/g,' ').replace(/(\d{1,3}(?:[,.]\d{3})+|\b\d+\b|[#*@])/g,' ').replace(/\s+/g,' ').trim();
+    if(!/[가-힣]|[A-Za-z]{2,}/.test(t)||/(단\s*가|수\s*량|금\s*액|할\s*인|쿠\s*폰)/.test(t))continue;
+    t=t.slice(0,20);if(!out.includes(t))out.push(t);
+    if(out.length>=8)break;
+  }
+  return out;
+}
 function parseReceipt(text){
   const raw=String(text||'');
   const lines=raw.split(/\n/).map(l=>l.replace(/\s+/g,' ').trim()).filter(Boolean);
@@ -1973,10 +2022,151 @@ function parseReceipt(text){
   let pay='cash',inst=1;
   if(/체\s*크/.test(flat))pay='debit';else if(/(신\s*용|카\s*드|승\s*인|일\s*시\s*불|할\s*부)/.test(flat))pay='credit';
   const im=flat.match(/할\s*부\s*(\d{1,2})\s*개?\s*월?/);if(im&&+im[1]>1&&+im[1]<=36)inst=+im[1];
-  const memo=store||'영수증';
-  let cat=suggestCat('out',memo,'');
+  const items=receiptItems(lines);
+  let memo=store||'영수증';
+  if(items.length)memo=(memo+' - '+items.slice(0,3).join(', ')+(items.length>3?` 외 ${items.length-3}개`:'')).slice(0,60);
+  let cat=suggestCat('out',store||memo,'');
   if(cat===fallbackCat('out')){const c2=suggestCat('out',flat.slice(0,400),'');if(c2)cat=c2}
   return amount?{date,type:'out',amount,memo,cat,pay,inst:pay==='credit'?inst:1,dir:'out',peer:''}:null;
+}
+
+/* ---------- PaddleOCR (기기 안 AI 글자 인식) ----------
+   PaddleOCR의 글자 위치 찾기(DB) + 한국어 글자 읽기(PP-OCRv5) 모델을 ONNX Runtime으로 브라우저에서 돌려요.
+   사진은 기기 밖으로 나가지 않고, 모델 파일은 처음 한 번 받은 뒤 기기에 저장돼요. */
+const PDL='vender/paddle/';
+let pdlDet=null,pdlRec=null,pdlDict=null,pdlRecH=48;
+function loadScriptOnce(src){
+  return new Promise((res,rej)=>{if(document.querySelector(`script[data-src="${src}"]`))return res();
+    const sc=document.createElement('script');sc.src=src;sc.dataset.src=src;sc.onload=res;sc.onerror=()=>rej(new Error('load'));document.head.appendChild(sc)});
+}
+async function fetchBuf(url,onp){
+  const r=await fetch(url);if(!r.ok)throw new Error('load');
+  const total=+r.headers.get('content-length')||0;
+  if(!r.body||!total){const b=await r.arrayBuffer();onp&&onp(1);return new Uint8Array(b)}
+  const rd=r.body.getReader(),parts=[];let got=0;
+  for(;;){const {done,value}=await rd.read();if(done)break;parts.push(value);got+=value.length;onp&&onp(got/total)}
+  const out=new Uint8Array(got);let o=0;for(const p of parts){out.set(p,o);o+=p.length}return out;
+}
+async function pdlInit(){
+  if(pdlDet&&pdlRec&&pdlDict)return;
+  await loadScriptOnce(PDL+'ort.min.js');
+  if(!window.ort)throw new Error('load');
+  ort.env.wasm.wasmPaths=new URL(PDL,location.href).href;ort.env.wasm.numThreads=1;
+  const opt={executionProviders:['wasm'],graphOptimizationLevel:'all'};
+  if(!pdlDet){const b=await fetchBuf(PDL+'det.onnx',p=>rcProgress(.02+.1*p,'AI 글자 인식 준비 중… (처음 한 번만 받아요)'));pdlDet=await ort.InferenceSession.create(b,opt)}
+  if(!pdlRec){const b=await fetchBuf(PDL+'rec.onnx',p=>rcProgress(.12+.18*p,'한국어 AI 모델 받는 중… (처음 한 번만 받아요)'));pdlRec=await ort.InferenceSession.create(b,opt)}
+  if(!pdlDict){const t=await (await fetch(PDL+'dict.txt')).text();pdlDict=t.split(/\r?\n/);while(pdlDict.length&&pdlDict[pdlDict.length-1]==='')pdlDict.pop()}
+}
+function pdlLoadImage(file){
+  return new Promise((res,rej)=>{const img=new Image(),url=URL.createObjectURL(file);
+    img.onload=()=>{const s=Math.min(1,3000/Math.max(img.naturalWidth,img.naturalHeight));
+      const c=document.createElement('canvas');c.width=Math.round(img.naturalWidth*s);c.height=Math.round(img.naturalHeight*s);
+      c.getContext('2d',{willReadFrequently:true}).drawImage(img,0,0,c.width,c.height);URL.revokeObjectURL(url);res(c)};
+    img.onerror=()=>{URL.revokeObjectURL(url);rej(new Error('img'))};img.src=url});
+}
+function toTensorBGR(ctx,w,h,mean,std){
+  const px=ctx.getImageData(0,0,w,h).data,n=w*h,out=new Float32Array(3*n);
+  for(let k=0;k<n;k++){const r=px[k*4]/255,g=px[k*4+1]/255,b=px[k*4+2]/255;
+    out[k]=(b-mean[0])/std[0];out[n+k]=(g-mean[1])/std[1];out[2*n+k]=(r-mean[2])/std[2]}
+  return out;
+}
+// 1) 글자가 있는 곳 찾기 (DB 모델)
+async function pdlDetect(full){
+  const w0=full.width,h0=full.height,long=Math.max(w0,h0),short=Math.min(w0,h0);
+  let s=Math.min(1,1600/long);if(short*s<736)s=Math.min(736/short,2200/long);
+  const W=Math.max(32,Math.round(w0*s/32)*32),H=Math.max(32,Math.round(h0*s/32)*32);
+  const c=document.createElement('canvas');c.width=W;c.height=H;const x=c.getContext('2d',{willReadFrequently:true});x.drawImage(full,0,0,W,H);
+  const data=toTensorBGR(x,W,H,[.485,.456,.406],[.229,.224,.225]);
+  const res=await pdlDet.run({[pdlDet.inputNames[0]]:new ort.Tensor('float32',data,[1,3,H,W])});
+  const out=res[pdlDet.outputNames[0]],map=out.data,mw=out.dims[out.dims.length-1],mh=out.dims[out.dims.length-2];
+  const seen=new Uint8Array(mw*mh),stack=new Int32Array(mw*mh),boxes=[];
+  for(let i=0;i<mw*mh;i++){
+    if(seen[i]||map[i]<=.3)continue;
+    let sp=0,minx=1e9,miny=1e9,maxx=-1,maxy=-1,sum=0,cnt=0;stack[sp++]=i;seen[i]=1;
+    while(sp){const p=stack[--sp],px=p%mw,py=(p/mw)|0;sum+=map[p];cnt++;
+      if(px<minx)minx=px;if(px>maxx)maxx=px;if(py<miny)miny=py;if(py>maxy)maxy=py;
+      const nb=[p-1,p+1,p-mw,p+mw];
+      for(let q=0;q<4;q++){const n=nb[q];if(n<0||n>=mw*mh)continue;if((q===0&&px===0)||(q===1&&px===mw-1))continue;if(!seen[n]&&map[n]>.3){seen[n]=1;stack[sp++]=n}}}
+    const bw=maxx-minx+1,bh=maxy-miny+1;
+    if(cnt<12||bw<4||bh<3||sum/cnt<.55)continue;
+    const d=(bw*bh*1.6)/(2*(bw+bh));
+    const sx=w0/mw,sy=h0/mh;
+    boxes.push({x0:Math.max(0,(minx-d)*sx),y0:Math.max(0,(miny-d)*sy),x1:Math.min(w0,(maxx+1+d)*sx),y1:Math.min(h0,(maxy+1+d)*sy)});
+  }
+  return boxes;
+}
+// 2) 찾은 줄마다 글자 읽기 (한국어 인식 모델 + CTC)
+async function pdlRecognize(full,b){
+  const cw=b.x1-b.x0,ch=b.y1-b.y0;if(cw<4||ch<4||ch>cw*1.6)return null;
+  const tryH=async H=>{
+    const W=Math.max(16,Math.min(1800,Math.round(H*cw/ch)));
+    const c=document.createElement('canvas');c.width=W;c.height=H;const x=c.getContext('2d',{willReadFrequently:true});
+    x.imageSmoothingQuality='high';x.drawImage(full,b.x0,b.y0,cw,ch,0,0,W,H);
+    const data=toTensorBGR(x,W,H,[.5,.5,.5],[.5,.5,.5]);
+    return pdlRec.run({[pdlRec.inputNames[0]]:new ort.Tensor('float32',data,[1,3,H,W])});
+  };
+  let res;
+  try{res=await tryH(pdlRecH)}catch(e){if(pdlRecH===48){pdlRecH=32;res=await tryH(32)}else throw e}
+  const out=res[pdlRec.outputNames[0]],T=out.dims[1],C=out.dims[2],p=out.data;
+  let prev=-1,text='',conf=0,n=0;
+  for(let t=0;t<T;t++){
+    let bi=0,bv=-1e9;for(let k=0;k<C;k++){const v=p[t*C+k];if(v>bv){bv=v;bi=k}}
+    let pv=bv;if(bv>1.0001||bv<0){let se=0;for(let k=0;k<C;k++)se+=Math.exp(p[t*C+k]-bv);pv=1/se}
+    if(bi!==0&&bi!==prev){text+=bi-1<pdlDict.length?pdlDict[bi-1]:' ';conf+=pv;n++}
+    prev=bi;
+  }
+  text=text.trim();if(!text)return null;
+  return {text,conf:n?conf/n:0,...b,cy:(b.y0+b.y1)/2,h:ch};
+}
+async function paddleRead(file){
+  await pdlInit();
+  rcProgress(.32,'영수증에서 글자 위치를 찾고 있어요…');
+  const full=await pdlLoadImage(file);
+  const boxes=await pdlDetect(full);
+  if(!boxes.length)return '';
+  const items=[];
+  for(let i=0;i<boxes.length;i++){
+    if(i%3===0){rcProgress(.38+.58*i/boxes.length,`AI가 글자를 읽고 있어요… (${i+1}/${boxes.length})`);await new Promise(r=>setTimeout(r,0))}
+    const r=await pdlRecognize(full,boxes[i]);if(r&&r.conf>=.45)items.push(r);
+  }
+  // 같은 높이의 조각을 한 줄로 묶어요
+  items.sort((a,b)=>a.cy-b.cy||a.x0-b.x0);
+  const lines=[];
+  for(const it of items){const L=lines[lines.length-1];
+    if(L&&Math.abs(it.cy-L.cy)<.55*Math.min(it.h,L.h))L.parts.push(it);else lines.push({cy:it.cy,h:it.h,parts:[it]})}
+  return lines.map(L=>L.parts.sort((a,b)=>a.x0-b.x0).map(p=>p.text).join(' ')).join('\n');
+}
+function rcAltNames(text){
+  const lines=String(text).split('\n').map(l=>l.trim()).filter(Boolean),out=[];
+  const clean=t=>t.replace(/\(\s*주\s*\)|㈜|주식회사/g,'').replace(/[()（）]/g,' ').replace(/[^\w가-힣&\s.-]/g,'').replace(/\s+/g,' ').trim().slice(0,30);
+  for(const l of lines){const m=l.match(/(?:가\s*맹\s*점\s*명?|상\s*호)\s*[:：;]?\s*(.+)/);if(m){const t=clean(m[1]);if(/[가-힣]{2,}/.test(t)&&!out.includes(t))out.push(t)}}
+  for(const l of lines.slice(0,4)){const t=clean(l);if(/[가-힣]{2,}/.test(t)&&!/(사업자|대표|주소|전화|영수증|반품|판매일|번호)/.test(t)&&!/\d{3,}/.test(t)&&!out.includes(t))out.push(t)}
+  return out;
+}
+
+/* AI 영수증 서버 (PaddleOCR) — config.js의 OCR_URL이 있으면 먼저 써요. 실패하면 기기 안 인식으로 넘어가요 */
+const OCR_URL=((window.APP_CONFIG&&APP_CONFIG.OCR_URL)||'').replace(/\/+$/,'');
+let RC_SRC='device',ocrPing=0;
+function wakeOcr(){if(!OCR_URL||Date.now()-ocrPing<10*60000)return;ocrPing=Date.now();fetch(OCR_URL+'/',{mode:'cors',cache:'no-store'}).catch(()=>{})}
+function rcJpeg(file,max){
+  return new Promise((res,rej)=>{const img=new Image(),url=URL.createObjectURL(file);
+    img.onload=()=>{const s=Math.min(1,max/Math.max(img.naturalWidth,img.naturalHeight));const c=document.createElement('canvas');c.width=Math.round(img.naturalWidth*s);c.height=Math.round(img.naturalHeight*s);
+      c.getContext('2d').drawImage(img,0,0,c.width,c.height);URL.revokeObjectURL(url);c.toBlob(b=>b?res(b):rej(new Error('img')),'image/jpeg',.9)};
+    img.onerror=()=>{URL.revokeObjectURL(url);rej(new Error('img'))};img.src=url});
+}
+async function rcServerText(file){
+  if(!OCR_URL||!sb)return {err:'off'};
+  const {data:{session}}=await sb.auth.getSession();if(!session)return {err:'auth'};
+  let blob;try{blob=await rcJpeg(file,2000)}catch(e){return {err:'img'}}
+  const fd=new FormData();fd.append('image',blob,'receipt.jpg');
+  const ctl=new AbortController(),t0=Date.now();
+  const tick=setInterval(()=>{const sec=(Date.now()-t0)/1000;rcProgress(Math.min(.95,.05+sec/40),sec<8?'AI가 영수증을 읽고 있어요…':'AI 서버를 깨우는 중이에요… 오래 쉬었다면 1분 정도 걸려요')},400);
+  const to=setTimeout(()=>ctl.abort(),100000);
+  try{
+    const r=await fetch(OCR_URL+'/ocr',{method:'POST',headers:{Authorization:'Bearer '+session.access_token},body:fd,signal:ctl.signal});
+    if(!r.ok)return {err:r.status};
+    const j=await r.json();return {text:String(j&&j.text||'').slice(0,20000)};
+  }catch(e){return {err:'net'}}finally{clearInterval(tick);clearTimeout(to)}
 }
 $('rcFile').addEventListener('change',async e=>{
   const f=e.target.files&&e.target.files[0];e.target.value='';
@@ -1985,12 +2175,31 @@ $('rcFile').addEventListener('change',async e=>{
   rcBusy=true;clearTimeout(rcIdle);
   try{
     rcProgress(.02,'사진을 준비하고 있어요…');
+    let note='';
+    try{
+      const text=await paddleRead(f);
+      if(text&&text.trim()){
+        RC_RAW=text.trim();RC_SRC='ai';
+        const item=parseReceipt(RC_RAW);
+        if(item){item.alts=rcAltNames(RC_RAW).filter(n=>!item.memo.startsWith(n)).slice(0,4);QITEMS=[item];renderQ(null,'receipt');return}
+        QITEMS=[];renderQ('영수증에서 금액을 찾지 못했어요. 영수증 전체가 밝게 나오도록 다시 찍어보세요.');return;
+      }
+      note='AI가 글자를 찾지 못해 간단 인식으로 다시 읽었어요.';
+    }catch(err){note='AI 인식 파일을 불러오지 못해 간단 인식으로 읽었어요.'}
+    RC_SRC=note?'fallback':'device';window.__rcNote=note;
     const canvas=await rcPrepare(f);
     const w=await getRcWorker();
     const {data}=await w.recognize(canvas);
     RC_RAW=(data&&data.text||'').trim();
     const item=parseReceipt(RC_RAW);
-    if(item){QITEMS=[item];renderQ(null,'receipt')}
+    if(item){
+      rcProgress(.97,'가게 이름을 한 번 더 자세히 읽고 있어요…');
+      const names=await rcStoreNames(w,canvas,data).catch(()=>[]);
+      item.alts=names.filter(n=>n!==item.memo).slice(0,4);
+      if((item.memo==='영수증'||!/[가-힣]{2,}/.test(item.memo))&&names.length){item.memo=names[0];item.alts=names.slice(1,5)}
+      if(item.memo!=='영수증'){const c=suggestCat('out',item.memo,'');if(c!==fallbackCat('out'))item.cat=c}
+      QITEMS=[item];renderQ(null,'receipt');
+    }
     else{QITEMS=[];renderQ('영수증에서 금액을 찾지 못했어요. 영수증이 화면에 꽉 차고 밝게 나오도록 다시 찍어보세요.')}
   }catch(err){
     renderQ(err&&err.message==='load'?'글자 인식 도구를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.':'영수증을 읽지 못했어요. 다른 사진으로 다시 시도해 주세요.');
