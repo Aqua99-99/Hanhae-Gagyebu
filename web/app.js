@@ -1887,23 +1887,44 @@ async function getRcWorker(){
       else if(/load|initializ/.test(m.status||''))rcProgress(.05+.3*(m.progress||0),'글자 인식 준비 중이에요… (처음 한 번은 조금 걸려요)');
     }
   });
+  try{await rcWorker.setParameters({tessedit_pageseg_mode:'6',preserve_interword_spaces:'1'})}catch(e){}
   return rcWorker;
 }
 function rcScheduleTerminate(){clearTimeout(rcIdle);rcIdle=setTimeout(async()=>{if(rcWorker&&!rcBusy){try{await rcWorker.terminate()}catch(e){}rcWorker=null}},90000)}
-// 사진을 줄이고 흑백·대비를 높여서 인식률을 올려요
+// 사진에서 영수증 종이(가장 밝은 부분)만 잘라내고, 글자가 충분히 크게 보이도록 키운 뒤 흑백·대비를 다듬어요
 function rcPrepare(file){
   return new Promise((res,rej)=>{
     const img=new Image(),url=URL.createObjectURL(file);
     img.onload=()=>{
-      const max=1800,sc=Math.min(1,max/Math.max(img.width,img.height));
-      const w=Math.round(img.width*sc),h=Math.round(img.height*sc);
-      const c=document.createElement('canvas');c.width=w;c.height=h;
-      const x=c.getContext('2d');x.drawImage(img,0,0,w,h);
-      const d=x.getImageData(0,0,w,h),a=d.data;
-      let sum=0;for(let i=0;i<a.length;i+=4){const g=.299*a[i]+.587*a[i+1]+.114*a[i+2];a[i]=a[i+1]=a[i+2]=g;sum+=g}
-      const mean=sum/(a.length/4);
-      for(let i=0;i<a.length;i+=4){let g=(a[i]-mean)*1.6+mean+15;g=g<0?0:g>255?255:g;a[i]=a[i+1]=a[i+2]=g}
-      x.putImageData(d,0,0);URL.revokeObjectURL(url);res(c);
+      try{
+        const W=img.naturalWidth,H=img.naturalHeight;
+        // 1) 작은 사본으로 밝은 종이 영역 찾기
+        const sw=240,sh=Math.max(1,Math.round(H*sw/W));
+        const sc=document.createElement('canvas');sc.width=sw;sc.height=sh;
+        const sx=sc.getContext('2d',{willReadFrequently:true});sx.filter='blur(3px)';sx.drawImage(img,0,0,sw,sh);
+        const sd=sx.getImageData(0,0,sw,sh).data,lum=new Float32Array(sw*sh);
+        for(let k=0;k<sw*sh;k++)lum[k]=.299*sd[k*4]+.587*sd[k*4+1]+.114*sd[k*4+2];
+        const sorted=Array.from(lum).sort((a,b)=>a-b),cut=sorted[Math.floor(sorted.length*.55)];
+        const xs=[],ys=[];for(let y=0;y<sh;y++)for(let x=0;x<sw;x++)if(lum[y*sw+x]>cut){xs.push(x);ys.push(y)}
+        const pct=(arr,q)=>{arr.sort((a,b)=>a-b);return arr[Math.min(arr.length-1,Math.max(0,Math.floor(arr.length*q)))]};
+        let x0=0,y0=0,x1=W,y1=H;
+        if(xs.length>sw*sh*.15){
+          const f=W/sw;x0=Math.max(0,(pct(xs,.01)-2)*f);x1=Math.min(W,(pct(xs,.99)+3)*f);y0=Math.max(0,(pct(ys,.01)-2)*f);y1=Math.min(H,(pct(ys,.99)+3)*f);
+          if(x1-x0<W*.25||y1-y0<H*.25){x0=0;y0=0;x1=W;y1=H}
+        }
+        // 2) 잘라낸 영수증을 가로 1400px 정도로 맞춤 (너무 길면 세로 4200px까지)
+        const cw=x1-x0,ch=y1-y0;let s2=1400/cw;if(ch*s2>4200)s2=4200/ch;
+        const ow=Math.round(cw*s2),oh=Math.round(ch*s2);
+        const c=document.createElement('canvas');c.width=ow;c.height=oh;
+        const x=c.getContext('2d',{willReadFrequently:true});x.imageSmoothingQuality='high';
+        x.drawImage(img,x0,y0,cw,ch,0,0,ow,oh);
+        // 3) 흑백 + 가벼운 대비 (너무 세게 하면 구겨진 그림자가 글자로 읽혀요)
+        const d=x.getImageData(0,0,ow,oh),a=d.data;let sum=0;
+        for(let k=0;k<a.length;k+=4){const gv=.299*a[k]+.587*a[k+1]+.114*a[k+2];a[k]=a[k+1]=a[k+2]=gv;sum+=gv}
+        const mean=sum/(a.length/4);
+        for(let k=0;k<a.length;k+=4){let gv=(a[k]-mean)*1.25+mean+10;gv=gv<0?0:gv>255?255:gv;a[k]=a[k+1]=a[k+2]=gv}
+        x.putImageData(d,0,0);URL.revokeObjectURL(url);res(c);
+      }catch(e){URL.revokeObjectURL(url);rej(e)}
     };
     img.onerror=()=>{URL.revokeObjectURL(url);rej(new Error('img'))};
     img.src=url;
@@ -1914,34 +1935,47 @@ function parseReceipt(text){
   const raw=String(text||'');
   const lines=raw.split(/\n/).map(l=>l.replace(/\s+/g,' ').trim()).filter(Boolean);
   const flat=lines.join('\n');
-  const nums=l=>(l.match(/\d{1,3}(?:[,.]\d{3})+|\d{3,9}/g)||[]).map(t=>+t.replace(/[,.]/g,'')).filter(n=>n>=100&&n<1e9);
-  // 합계 금액: 결제·승인 금액을 가장 믿고, 그다음 합계·총액
-  const strong=/(결\s*제\s*금\s*액|승\s*인\s*금\s*액|받\s*을\s*금\s*액|카\s*드\s*결\s*제|청\s*구\s*금\s*액|결\s*제\s*요\s*청)/;
-  const mid=/(합\s*계|총\s*액|총\s*금\s*액|합\s*계\s*금\s*액|TOTAL|Total|판\s*매\s*금\s*액)/;
+  // 금액처럼 생긴 숫자만: 12,880 / 12.880 / 12 880 같은 천 단위 표기, 또는 쉼표 없는 6자리 이하
+  const ID_LINE=/(번\s*호|NO\b|No[.:]|무\s*서\s*명|승\s*인\s*번|전\s*표|카\s*드\s*번|거\s*래|사\s*업\s*자|전\s*화|TEL|포\s*인\s*트|고\s*객|바\s*코\s*드|계\s*산\s*대|\*{2,})/i;
+  const money=l=>{const out=[];const re=/(\d{1,3}(?:\s?[,.]\s?\d{3})+)(?!\d)|(?<![\d,.])(\d{3,6})(?![\d,.])/g;let m;
+    while((m=re.exec(l))){const v=m[1]?+m[1].replace(/[^\d]/g,''):+m[2];if(v>=100&&v<=50000000)out.push({v,comma:!!m[1]})}return out};
+  const strong=/(결\s*제\s*금\s*액|승\s*인\s*금\s*액|받\s*을\s*금\s*액|청\s*구\s*금\s*액|카\s*드\s*지\s*불|신\s*용\s*카\s*드\s*지\s*불|지\s*불\s*금\s*액|결\s*제\s*요\s*청)/;
+  const mid=/(합\s*[계게]|총\s*액|총\s*금\s*액|판\s*매\s*금\s*액|TOTAL|Total)/;
+  const skipLine=/(부\s*가\s*세|과\s*세|면\s*세|봉\s*사\s*료|할\s*인|포\s*인\s*트|VAT)/i;
+  const pick=re=>{const found=[];for(let i=0;i<lines.length;i++){if(re.test(lines[i])&&!skipLine.test(lines[i])){let n=money(lines[i]);if(!n.length)n=money(lines[i+1]||'');if(n.length)found.push(Math.max(...n.map(o=>o.v)))}}return found};
   let amount=0;
-  const pick=re=>{for(let i=0;i<lines.length;i++){if(re.test(lines[i])&&!/(부가세|과세|면세|봉사료|할인)/.test(lines[i])){const n=nums(lines[i]);const nn=n.length?n:nums(lines[i+1]||'');if(nn.length)return Math.max(...nn)}}return 0};
-  amount=pick(strong)||pick(mid);
-  if(!amount){const all=lines.filter(l=>!/(\d{2,4}-\d{3,4}-\d{4}|사업자|등록번호|전화|TEL|카드번호|승인번호|\*{2,})/i.test(l)).flatMap(nums);if(all.length)amount=Math.max(...all)}
+  const st=pick(strong),md=pick(mid);
+  if(st.length)amount=st[0];else if(md.length)amount=md[0];
+  if(!amount){
+    // 글자가 깨져 단어를 못 찾았을 때: 영수증에 두 번 이상 나온 금액 중 가장 큰 값(합계와 승인금액은 보통 같아요)
+    const cands=lines.filter(l=>!ID_LINE.test(l)&&!skipLine.test(l)).flatMap(money).filter(o=>o.comma);
+    const cnt={};for(const o of cands)cnt[o.v]=(cnt[o.v]||0)+1;
+    const rep=Object.keys(cnt).map(Number).filter(v=>cnt[v]>=2);
+    if(rep.length)amount=Math.max(...rep);
+    else if(cands.length)amount=Math.max(...cands.map(o=>o.v));
+  }
   // 날짜
   let date=null,m;
   if((m=flat.match(/(20\d{2})\s*[.\-/년]\s*(\d{1,2})\s*[.\-/월]\s*(\d{1,2})/)))date=parseDate(`${m[1]}-${m[2]}-${m[3]}`);
-  else if((m=flat.match(/(?:^|\D)(\d{2})[.\-/](\d{1,2})[.\-/](\d{1,2})(?:\D|$)/)))date=parseDate(`20${m[1]}-${m[2]}-${m[3]}`);
+  else if((m=flat.match(/(?:^|[^\d])(\d{2})\s*[.\-/]\s*(\d{1,2})\s*[.\-/]\s*(\d{1,2})(?!\d)/)))date=parseDate(`20${m[1]}-${m[2]}-${m[3]}`);
+  if(date&&date>todayStr(1))date=null;
   if(!date)date=todayStr(0);
-  // 가게 이름: '상호/가맹점' 줄을 먼저 보고, 없으면 위쪽의 한글 줄
+  // 가게 이름: '가맹점명/상호' 줄을 먼저, 없으면 위쪽의 한글 줄
   let store='';
-  for(const l of lines){const mm=l.match(/(?:상\s*호|가\s*맹\s*점\s*명?|매\s*장\s*명|점\s*포\s*명)\s*[:：]?\s*(.+)/);if(mm&&/[가-힣A-Za-z]/.test(mm[1])){store=mm[1];break}}
+  for(const l of lines){const mm=l.match(/(?:상\s*호|가\s*맹\s*점\s*명?|매\s*장\s*명|점\s*포\s*명)\s*[:：;]?\s*(.+)/);if(mm&&/[가-힣]{2,}/.test(mm[1])){store=mm[1];break}}
   if(!store){
-    const skip=/(영수증|매출전표|전표|고객용|카드|사업자|등록|대표|주소|전화|TEL|번호|일시|날짜|금액|합계|부가세|과세|품명|단가|수량|POS|포스|감사|환영|교환|환불|\d{2,}[-:]\d{2,})/i;
-    store=(lines.slice(0,8).find(l=>/[가-힣]{2,}/.test(l)&&!skip.test(l)&&nums(l).length===0)||'');
+    const skip=/(영수증|매출전표|전표|고객용|카드|사업자|등록|대표|주소|전화|TEL|번호|일시|날짜|판매일|금액|합계|부가세|과세|품명|상품명|단가|수량|POS|포스|감사|환영|교환|환불|반품|지참|\d{2,}[-:]\d{2,})/i;
+    store=(lines.slice(0,6).find(l=>/[가-힣]{2,}/.test(l)&&!skip.test(l)&&money(l).length===0)||'');
   }
-  store=store.replace(/\(\s*주\s*\)|㈜|주식회사/g,'').replace(/[^\w가-힣&\s.-]/g,'').replace(/\s+/g,' ').trim().slice(0,30);
+  store=store.replace(/\(\s*주\s*\)|㈜|주식회사/g,'').replace(/[()（）]/g,' ').replace(/[^\w가-힣&\s.-]/g,'').replace(/\s+/g,' ').trim().slice(0,30);
+  if(!/[가-힣]{2,}/.test(store))store='';
   // 결제수단·할부
   let pay='cash',inst=1;
   if(/체\s*크/.test(flat))pay='debit';else if(/(신\s*용|카\s*드|승\s*인|일\s*시\s*불|할\s*부)/.test(flat))pay='credit';
-  const im=flat.match(/할\s*부\s*(\d{1,2})\s*개?\s*월?/);if(im&&+im[1]>1)inst=+im[1];
+  const im=flat.match(/할\s*부\s*(\d{1,2})\s*개?\s*월?/);if(im&&+im[1]>1&&+im[1]<=36)inst=+im[1];
   const memo=store||'영수증';
   let cat=suggestCat('out',memo,'');
-  if(cat===fallbackCat('out')){const c2=suggestCat('out',flat.slice(0,300),'');if(c2)cat=c2}
+  if(cat===fallbackCat('out')){const c2=suggestCat('out',flat.slice(0,400),'');if(c2)cat=c2}
   return amount?{date,type:'out',amount,memo,cat,pay,inst:pay==='credit'?inst:1,dir:'out',peer:''}:null;
 }
 $('rcFile').addEventListener('change',async e=>{
