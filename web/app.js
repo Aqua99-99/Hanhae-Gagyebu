@@ -2040,7 +2040,7 @@ function loadScriptOnce(src){
     const sc=document.createElement('script');sc.src=src;sc.dataset.src=src;sc.onload=res;sc.onerror=()=>rej(new Error('load'));document.head.appendChild(sc)});
 }
 async function fetchBuf(url,onp){
-  const r=await fetch(url);if(!r.ok)throw new Error('load');
+  const r=await fetch(url);if(!r.ok)throw new Error(url.split('/').pop()+' 파일 없음('+r.status+')');
   const total=+r.headers.get('content-length')||0;
   if(!r.body||!total){const b=await r.arrayBuffer();onp&&onp(1);return new Uint8Array(b)}
   const rd=r.body.getReader(),parts=[];let got=0;
@@ -2049,13 +2049,16 @@ async function fetchBuf(url,onp){
 }
 async function pdlInit(){
   if(pdlDet&&pdlRec&&pdlDict)return;
-  await loadScriptOnce(PDL+'ort.min.js');
-  if(!window.ort)throw new Error('load');
+  try{await loadScriptOnce(PDL+'ort.min.js')}catch(e){throw new Error('ort.min.js 파일 없음')}
+  if(!window.ort)throw new Error('ort.min.js가 올바른 파일이 아님');
   ort.env.wasm.wasmPaths=new URL(PDL,location.href).href;ort.env.wasm.numThreads=1;
+  // 빠른 버전(simd) 파일이 없으면 기본 버전으로 돌려요
+  try{const h=await fetch(PDL+'ort-wasm-simd.wasm',{method:'HEAD'});if(!h.ok)ort.env.wasm.simd=false}catch(e){ort.env.wasm.simd=false}
   const opt={executionProviders:['wasm'],graphOptimizationLevel:'all'};
-  if(!pdlDet){const b=await fetchBuf(PDL+'det.onnx',p=>rcProgress(.02+.1*p,'AI 글자 인식 준비 중… (처음 한 번만 받아요)'));pdlDet=await ort.InferenceSession.create(b,opt)}
-  if(!pdlRec){const b=await fetchBuf(PDL+'rec.onnx',p=>rcProgress(.12+.18*p,'한국어 AI 모델 받는 중… (처음 한 번만 받아요)'));pdlRec=await ort.InferenceSession.create(b,opt)}
-  if(!pdlDict){const t=await (await fetch(PDL+'dict.txt')).text();pdlDict=t.split(/\r?\n/);while(pdlDict.length&&pdlDict[pdlDict.length-1]==='')pdlDict.pop()}
+  const mk=async(name,b)=>{try{return await ort.InferenceSession.create(b,opt)}catch(e){throw new Error(name+' 실행 실패: '+String(e&&e.message||e).slice(0,80))}};
+  if(!pdlDet){const b=await fetchBuf(PDL+'det.onnx',p=>rcProgress(.02+.1*p,'AI 글자 인식 준비 중… (처음 한 번만 받아요)'));pdlDet=await mk('det.onnx',b)}
+  if(!pdlRec){const b=await fetchBuf(PDL+'rec.onnx',p=>rcProgress(.12+.18*p,'한국어 AI 모델 받는 중… (처음 한 번만 받아요)'));pdlRec=await mk('rec.onnx',b)}
+  if(!pdlDict){let r=await fetch(PDL+'dict.txt');if(!r.ok)r=await fetch(PDL+'languages_korean_dict.txt');if(!r.ok)throw new Error('dict.txt 파일 없음('+r.status+')');const t=await r.text();pdlDict=t.split(/\r?\n/);while(pdlDict.length&&pdlDict[pdlDict.length-1]==='')pdlDict.pop()}
 }
 function pdlLoadImage(file){
   return new Promise((res,rej)=>{const img=new Image(),url=URL.createObjectURL(file);
@@ -2185,7 +2188,7 @@ $('rcFile').addEventListener('change',async e=>{
         QITEMS=[];renderQ('영수증에서 금액을 찾지 못했어요. 영수증 전체가 밝게 나오도록 다시 찍어보세요.');return;
       }
       note='AI가 글자를 찾지 못해 간단 인식으로 다시 읽었어요.';
-    }catch(err){note='AI 인식 파일을 불러오지 못해 간단 인식으로 읽었어요.'}
+    }catch(err){note=`AI 인식을 쓰지 못해 간단 인식으로 읽었어요. [원인: ${String(err&&err.message||err).slice(0,120)}]`;try{console.warn('PaddleOCR',err)}catch(e){}}
     RC_SRC=note?'fallback':'device';window.__rcNote=note;
     const canvas=await rcPrepare(f);
     const w=await getRcWorker();
