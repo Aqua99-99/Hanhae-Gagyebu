@@ -46,6 +46,7 @@
 
 ### 기록하기
 - **말로 입력** — "어제 스타벅스 5600원 카드로", "25일 월급 320만원 들어옴"처럼 적으면 날짜·금액·카테고리·결제수단을 알아서 채워요. 여러 건은 쉼표로 한 번에 입력할 수 있어요.
+- **영수증 스캔** — 입력칸 옆 "영수증" 버튼으로 사진을 찍거나 고르면 가게 이름, 날짜, 합계 금액, 결제수단(신용·체크·현금·할부)을 읽어 확인 화면에 채워요. 사진은 서버로 보내지 않고 **기기 안에서만** 읽어요.
 - **엑셀·CSV 가져오기** — 카드사·은행 거래내역 파일을 올리면 날짜·내용·금액 열을 자동으로 찾아요. 은행 CSV의 한글 깨짐(EUC-KR) 처리, 중복 내역 표시, 취소·환불 제외, 가맹점 이름으로 카테고리 추천과 학습까지 해요.
 - **고정 지출·수입** — 관리비, 구독료, 월급, 적금처럼 매달 반복되는 항목을 등록하면 그날이 되면 자동으로 기록돼요.
 - **수정·삭제·되돌리기** — 모든 내역을 눌러서 수정할 수 있고, 최근 15개 작업은 되돌릴 수 있어요. (Ctrl+Z 지원)
@@ -96,6 +97,7 @@
 | 배포 | Vercel (정적 호스팅) |
 | 앱 설치 | PWA (웹 앱 매니페스트 · 서비스 워커) |
 | 엑셀 처리 | SheetJS Community Edition |
+| 영수증 인식 | Tesseract.js (기기 안 글자 인식, WebAssembly) |
 | 차트 | 직접 그린 SVG (외부 차트 라이브러리 없음) |
 
 ```
@@ -105,6 +107,8 @@
 ```
 
 데이터는 가계부 하나당 `정보 문서 1개 + 연도별 기록 문서`로 나눠 저장해서, 여러 해를 써도 문서 하나가 커지지 않아요.
+
+**영수증 인식 방식** — 사진을 줄이고 흑백·대비를 높인 뒤 Tesseract.js로 한국어·영어 글자를 읽어요. 금액은 "결제금액·승인금액" 줄을 가장 먼저, 그다음 "합계·총액" 줄을 보고 부가세·할인 줄은 건너뛰어요. 가게 이름은 "상호·가맹점명" 줄이나 영수증 위쪽의 한글 줄에서 찾고, 카테고리는 가게 이름으로 추천해요. 인식 데이터는 처음 한 번만 받고 이후엔 기기에 저장돼요.
 
 **동기화 방식** — 기록마다 마지막으로 바꾼 시각(`u`)을, 지운 기록은 지운 시각(`tomb`, 180일 보관)을 남겨요. 서버와 기기를 기록 단위로 비교해 더 최근 것을 남기고, 가계부 목록도 같은 방식으로 합쳐요. 자동 기록되는 고정 지출과 가계부 사이 이체는 어느 기기에서 만들어도 같은 번호를 받아 중복되지 않아요.
 
@@ -117,7 +121,7 @@
 | 항목 | 적용한 대책 |
 |---|---|
 | A01 접근 제어 | 모든 테이블에 RLS, 본인 행만 읽기·쓰기. 계정 삭제도 본인만 가능한 함수로 처리 |
-| A02 잘못된 설정 | CSP(인라인 스크립트 차단), X-Frame-Options, HSTS, nosniff, Referrer-Policy, Permissions-Policy |
+| A02 잘못된 설정 | CSP(인라인 스크립트 차단, 영수증 인식용 WebAssembly 실행만 허용), X-Frame-Options, HSTS, nosniff, Referrer-Policy, Permissions-Policy |
 | A03 공급망 | 외부 라이브러리를 저장소에 직접 포함(`web/vender`)하고 버전 고정. 실행 중 외부 CDN 스크립트 없음 |
 | A04 암호화 | 전 구간 HTTPS, 비밀번호를 보관하지 않음(구글 로그인만 사용) |
 | A05 인젝션 | 화면 출력 이스케이프, 불러오는 모든 데이터(서버·로컬·백업 파일)를 허용 목록 방식으로 검증 |
@@ -125,6 +129,8 @@
 | A07 인증 | Google OAuth + PKCE, 로그인 후 주소의 일회용 코드 자동 제거, 확실한 로그아웃 |
 | A08 무결성 | 백업 복원 시 데이터 구조 검증, 복원은 항상 새 가계부로. 동기화 시 서버·기기 데이터를 모두 같은 검증을 거쳐 합침 |
 | A10 예외 처리 | 서버 저장 실패 시 기기에 보관하고 안내, 한도 초과는 막고 알림 |
+
+영수증 사진은 서버나 외부 서비스로 전송하지 않고 기기 안에서만 처리하며, 저장하지도 않아요.
 
 앱 안 브라우저(카카오톡 등)에서는 구글 정책상 로그인이 막혀 있어서, 해당 환경을 감지해 외부 브라우저로 안내해요. 서비스 워커는 같은 사이트의 화면 파일만 다루고, Supabase·구글 요청과 로그인 코드가 담긴 주소는 저장하지 않아요.
 
@@ -146,7 +152,10 @@ web/                       정적 웹사이트 (Vercel 배포 폴더)
   sw.js                    서비스 워커 (오프라인 화면)
   icons/                   앱 아이콘 (192, 512, maskable, apple-touch, favicon)
   assets/                  첫 화면 이미지 (화이트·블랙용)
-  vender/                  외부 라이브러리 (supabase.js, xlsx.full.min.js)
+  vender/                  외부 라이브러리
+    supabase.js            로그인·데이터 저장
+    xlsx.full.min.js       엑셀 처리
+    tesseract/             영수증 인식 (tesseract.min.js, worker.min.js, core/, lang/)
 supabase/
   schema.sql               새 프로젝트용 테이블·보안 규칙 전체
   security-update.sql      기존 프로젝트용 보안 업데이트
@@ -176,7 +185,9 @@ docs/screenshots/          README 이미지
 ### 3. 웹 설정
 - `web/config.js`에 Supabase Project URL과 Publishable(anon) 키 입력 — 공개돼도 되는 키예요. **service_role·secret 키는 절대 넣지 마세요.**
 - `web/vercel.json`의 CSP `connect-src`에 내 Supabase 주소 입력
-- `web/vender/`에 라이브러리 두 파일 넣기 (`web/vender/README.txt` 참고)
+- `web/vender/`에 외부 라이브러리 넣기
+  - `supabase.js`, `xlsx.full.min.js` — `web/vender/README.txt` 참고
+  - `tesseract/` 폴더 6개 파일 — `web/vender/tesseract/README.txt` 참고 (`.gz` 파일은 압축을 풀지 말고 그대로)
 
 ### 4. Vercel
 저장소를 가져와 **Root Directory를 `web`**, Framework Preset을 **Other**로 두고 배포하면 끝이에요. 이후 GitHub에 올리면 자동으로 다시 배포돼요.
@@ -192,7 +203,8 @@ docs/screenshots/          README 이미지
 - [x] 오프라인 기록 보존과 기기 간 동기화
 - [ ] 함께 쓰는 가계부 (커플·가족)
 - [ ] 저축 목표, 작년 같은 달과 비교
-- [ ] 영수증·손글씨 사진 인식 입력 (무료 OCR 방식 검토 중)
+- [x] 영수증 사진 인식 입력 (기기 안 처리, 무료)
+- [ ] 손글씨 메모 사진 인식 (정확도 높은 인식 서비스 검토)
 - [ ] 로봇 가입 방지(캡차)
 - [ ] AI 월간 소비 리포트 (코드는 준비됨, 비용 문제로 꺼둠)
 
@@ -202,6 +214,8 @@ docs/screenshots/          README 이미지
 
 - [supabase-js](https://github.com/supabase/supabase-js) — MIT
 - [SheetJS Community Edition](https://sheetjs.com) — Apache 2.0
+- [Tesseract.js](https://github.com/naptha/tesseract.js) · [tesseract.js-core](https://github.com/naptha/tesseract.js-core) — Apache 2.0
+- [Tesseract 학습 데이터 (kor, eng)](https://github.com/tesseract-ocr/tessdata) — Apache 2.0
 - [IBM Plex Sans KR](https://github.com/IBM/plex) — SIL Open Font License
 
 <div align="center">
