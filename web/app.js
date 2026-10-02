@@ -1618,7 +1618,16 @@ $('auGoogle').onclick=async()=>{
   const {error}=await sb.auth.signInWithOAuth({provider:'google',options:{redirectTo:location.origin+location.pathname}});
   if(error){$('auGoogle').disabled=false;$('auErr').textContent='구글 로그인을 시작하지 못했어요. 잠시 후 다시 시도해 주세요.'}
 };
+function cleanAuthUrl(){
+  // 로그인 후 주소창에 남은 일회용 코드(?code=...)나 오류 표시를 지워요
+  try{const u=new URL(location.href);let ch=false;
+    for(const k of ['code','error','error_code','error_description','state']){if(u.searchParams.has(k)){u.searchParams.delete(k);ch=true}}
+    if(u.hash&&/access_token|refresh_token|error/.test(u.hash)){u.hash='';ch=true}
+    if(ch)history.replaceState(history.state,'',u.pathname+(u.search?u.search:'')+u.hash);
+  }catch(e){}
+}
 async function startApp(user){
+  cleanAuthUrl();
   if(ME&&ME.id===user.id){return}
   ME=user;LS2='gagyebu.v2.'+user.id;IDX=[];LEDGERS={};S.cur=null;
   $('meEmail').textContent=user.email||'';
