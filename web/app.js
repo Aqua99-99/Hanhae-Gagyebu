@@ -1699,8 +1699,10 @@ function authUI(){show('auth');$('auErr').textContent='';renderLandingRings();wi
 async function googleLogin(btn){
   if(INAPP){showInapp(true);return}
   $('auErr').textContent='';document.querySelectorAll('.js-google').forEach(b=>b.disabled=true);
-  const {error}=await sb.auth.signInWithOAuth({provider:'google',options:{redirectTo:location.origin+location.pathname}});
-  if(error){document.querySelectorAll('.js-google').forEach(b=>b.disabled=false);$('auErr').textContent='구글 로그인을 시작하지 못했어요. 잠시 후 다시 시도해 주세요.'}
+  // 첫 화면을 구글 화면으로 '바꿔치기'해서, 로그인 후 뒤로 가기에 첫 화면이 쌓이지 않게 해요
+  const {data,error}=await sb.auth.signInWithOAuth({provider:'google',options:{redirectTo:location.origin+location.pathname,skipBrowserRedirect:true}});
+  if(!error&&data&&data.url){location.replace(data.url);return}
+  if(error||!data||!data.url){document.querySelectorAll('.js-google').forEach(b=>b.disabled=false);$('auErr').textContent='구글 로그인을 시작하지 못했어요. 잠시 후 다시 시도해 주세요.'}
 }
 document.querySelectorAll('.js-google').forEach(b=>b.addEventListener('click',()=>googleLogin(b)));
 // 구글 화면에서 '뒤로 가기'로 돌아오면 브라우저가 눌린 상태 그대로 페이지를 복원해서, 버튼을 다시 풀어줘요
@@ -1763,6 +1765,23 @@ async function deleteAccount(){
   clearAuthStorage();
   alert('계정과 모든 데이터가 삭제됐어요.');location.replace(location.origin+location.pathname);
 }
+/* 구글 로그인 화면에서 '뒤로 가기'로 되돌아오면, 이미 쓴 로그인 요청이 다시 실행되면서
+   주소에 오류(bad_oauth_state 등)가 붙어 돌아와요. 로그인 도구가 이걸 보고 기존 로그인을 지워버리지 않도록,
+   도구를 켜기 전에 오류 표시를 먼저 걷어내요. 이미 로그인돼 있으면 그대로 가계부로 들어가요. */
+function takeAuthError(){
+  try{
+    const u=new URL(location.href);
+    const hp=new URLSearchParams(u.hash.replace(/^#/,''));
+    const code=u.searchParams.get('error_code')||u.searchParams.get('error')||hp.get('error_code')||hp.get('error');
+    if(!code)return null;
+    for(const k of ['error','error_code','error_description','state'])u.searchParams.delete(k);
+    if(hp.has('error'))u.hash='';
+    history.replaceState(history.state,'',u.pathname+(u.searchParams.toString()?'?'+u.searchParams:'')+u.hash);
+    if(code==='bad_oauth_state'||code==='flow_state_not_found'||code==='flow_state_expired')return null;
+    if(code==='access_denied')return '구글 로그인을 취소했어요.';
+    return '로그인 중 문제가 생겼어요. 다시 시도해 주세요.';
+  }catch(e){return null}
+}
 async function boot(){
   paintThemeBtns();
   if(!AI_ON)document.querySelectorAll('.menu [data-act="report"]').forEach(b=>b.hidden=true);
@@ -1770,12 +1789,14 @@ async function boot(){
   if(!window.supabase||!/^https:\/\//.test(C.SUPABASE_URL||'')||!C.SUPABASE_ANON_KEY||/YOUR_/.test(C.SUPABASE_ANON_KEY)){
     document.querySelector('.wrap').innerHTML='<div class="cfg-err"><b>설정이 필요해요</b><br>config.js에 Supabase 주소와 anon 키를 넣어주세요. 자세한 방법은 README를 확인해 주세요.</div>';return;
   }
+  const authNotice=takeAuthError();
   sb=window.supabase.createClient(C.SUPABASE_URL,C.SUPABASE_ANON_KEY,{auth:{flowType:'pkce',persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
   sb.auth.onAuthStateChange((ev,session)=>{
     if(ev==='SIGNED_IN'&&session)startApp(session.user);
     if(ev==='SIGNED_OUT'){ME=null;authUI()}
   });
   const {data:{session}}=await sb.auth.getSession();
+  if(authNotice&&!session)setTimeout(()=>{$('auErr').textContent=authNotice},0);
   if(session)startApp(session.user);else authUI();
 }
 boot();
