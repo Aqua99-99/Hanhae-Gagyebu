@@ -1963,5 +1963,12 @@ $('rcFile').addEventListener('change',async e=>{
   }finally{rcBusy=false;rcScheduleTerminate()}
 });
 
-// 다른 탭으로 가면 첫 화면 배경 움직임을 멈춰서 배터리를 아껴요
+
+/* 첫 화면 계절 배경: 지금 계절부터 시작해요 (3~5월 봄, 6~8월 여름, 9~11월 가을, 12~2월 겨울) */
+(function(){
+  const box=$('seasons');if(!box)return;
+  const m=new Date().getMonth()+1,idx=m>=3&&m<=5?0:m>=6&&m<=8?1:m>=9&&m<=11?2:3;
+  box.style.setProperty('--st',(-idx*12)+'s');
+  box.children[idx]&&box.children[idx].classList.add('now');
+})();
 document.addEventListener('visibilitychange',()=>document.documentElement.classList.toggle('is-hidden',document.visibilityState!=='visible'));
