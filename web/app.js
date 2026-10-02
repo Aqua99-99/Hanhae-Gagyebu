@@ -1612,12 +1612,34 @@ function saveBlob(filename,buf){
 /* ---------- 로그인 ---------- */
 let sb=null,ME=null;
 function show(id){['auth','home','ledgerView'].forEach(x=>$(x).hidden=x!==id)}
-function authUI(){show('auth');$('auErr').textContent=''}
-$('auGoogle').onclick=async()=>{
-  $('auErr').textContent='';$('auGoogle').disabled=true;
+function authUI(){show('auth');$('auErr').textContent='';renderLandingRings();window.scrollTo(0,0)}
+async function googleLogin(btn){
+  $('auErr').textContent='';document.querySelectorAll('.js-google').forEach(b=>b.disabled=true);
   const {error}=await sb.auth.signInWithOAuth({provider:'google',options:{redirectTo:location.origin+location.pathname}});
-  if(error){$('auGoogle').disabled=false;$('auErr').textContent='구글 로그인을 시작하지 못했어요. 잠시 후 다시 시도해 주세요.'}
-};
+  if(error){document.querySelectorAll('.js-google').forEach(b=>b.disabled=false);$('auErr').textContent='구글 로그인을 시작하지 못했어요. 잠시 후 다시 시도해 주세요.'}
+}
+document.querySelectorAll('.js-google').forEach(b=>b.addEventListener('click',()=>googleLogin(b)));
+/* 첫 화면의 열두 달 도넛 (예시 숫자) */
+const LN_DEMO=[[350,86],[346,64],[320,63],[367,60],[320,74],[348,58],[320,82],[320,64],[367,77],[320,48],[338,67],[320,85]];
+const LN_SPLIT=[['--p0',.27],['--p1',.36],['--p2',.12],['--p3',.1],['--p4',.08],['--p5',.07]];
+function renderLandingRings(){
+  const box=$('lnRings');if(!box||box.dataset.done)return;box.dataset.done='1';
+  const R1=44,R2=31,C1=2*Math.PI*R1,C2=2*Math.PI*R2;
+  box.innerHTML=LN_DEMO.map(([inc,out],i)=>{
+    const max=Math.max(inc,out);let off=0,segs='';
+    for(const [v,f] of LN_SPLIT){const len=out*f/max*C2;segs+=`<circle class="ln-arc" data-len="${(len-1.2).toFixed(1)}" cx="50" cy="50" r="${R2}" fill="none" stroke="var(${v})" stroke-width="9" stroke-dasharray="${(len-1.2).toFixed(1)} ${C2.toFixed(1)}" stroke-dashoffset="${(len).toFixed(1)}" transform="rotate(${-90+off/C2*360} 50 50)" style="transition-delay:${i*70+250}ms"/>`;off+=len}
+    const il=inc/max*C1;
+    return `<div class="ln-ring"><svg viewBox="0 0 100 100" aria-hidden="true">
+      <circle cx="50" cy="50" r="${R1}" fill="none" stroke="var(--empty)" stroke-width="9"/>
+      <circle cx="50" cy="50" r="${R2}" fill="none" stroke="var(--empty)" stroke-width="9"/>
+      <circle class="ln-arc" cx="50" cy="50" r="${R1}" fill="none" stroke="var(--in)" stroke-width="9" stroke-dasharray="${il.toFixed(1)} ${C1.toFixed(1)}" stroke-dashoffset="${il.toFixed(1)}" transform="rotate(-90 50 50)" style="transition-delay:${i*70}ms"/>
+      ${segs}
+      <text x="50" y="55" text-anchor="middle" font-size="13" font-weight="700" fill="var(--in)">${Math.round(inc-out)}만</text>
+    </svg><span>${i+1}월</span></div>`;
+  }).join('');
+  requestAnimationFrame(()=>requestAnimationFrame(()=>box.querySelectorAll('.ln-arc').forEach(c=>c.style.strokeDashoffset='0')));
+  const mk=$('lnMark');if(mk){let o='',C=2*Math.PI*12;const cols=['--p0','--p1','--p2','--p3','--p4','--p6'];for(let k=0;k<12;k++){o+=`<circle cx="16" cy="16" r="12" fill="none" stroke="var(${cols[k%6]})" stroke-width="6" stroke-dasharray="${(C/12-1.3).toFixed(2)} ${C.toFixed(2)}" transform="rotate(${-90+k*30} 16 16)"/>`}mk.innerHTML=o}
+}
 function cleanAuthUrl(){
   // 로그인 후 주소창에 남은 일회용 코드(?code=...)나 오류 표시를 지워요
   try{const u=new URL(location.href);let ch=false;
