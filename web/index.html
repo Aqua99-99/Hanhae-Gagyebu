@@ -4,7 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>한 해 가계부</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>💰</text></svg>">
+<link rel="icon" type="image/png" sizes="48x48" href="icons/favicon-48.png">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="한 해 가계부">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="description" content="캘린더와 도넛 차트로 보는 가계부">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -462,6 +470,12 @@ dialog.wide{width:min(960px,calc(100% - 24px))}
   .ln-tall img{max-height:520px}
 }
 @media (prefers-reduced-motion:reduce){.ln-arc{transition:none}}
+.install{display:flex;align-items:center;gap:12px;border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:16px;background:var(--surface)}
+.install .ln-mark{width:32px;height:32px;flex:0 0 auto}
+.install-t{flex:1;min-width:0;display:flex;flex-direction:column;font-size:14px}
+.install-t span{color:var(--muted);font-size:13px}
+.install .btn-add{padding:8px 16px}
+@media (display-mode: standalone){.install{display:none!important}}
 </style>
 </head>
 <body>
@@ -553,6 +567,12 @@ dialog.wide{width:min(960px,calc(100% - 24px))}
       <button class="btn-add" data-act="newlg">+ 새 가계부</button>
     </header>
     <p class="lead">통장이나 용도별로 가계부를 따로 만들고, 들어가서 각각 기록할 수 있어요.</p>
+    <div class="install" id="installBox" hidden>
+      <svg viewBox="0 0 32 32" aria-hidden="true" class="ln-mark js-mark"></svg>
+      <div class="install-t"><b>앱으로 설치하기</b><span id="installMsg">홈 화면에 추가하면 주소창 없이 앱처럼 열려요.</span></div>
+      <button type="button" class="btn-add" id="installBtn">설치</button>
+      <button type="button" class="x" id="installClose" aria-label="닫기">✕</button>
+    </div>
     <div id="combined"></div>
     <div class="lgrid" id="lgrid"></div>
     <p class="home-foot"><a href="privacy.html" target="_blank" rel="noopener">개인정보처리방침</a> · <button type="button" class="lnk" data-act="delacct">계정과 모든 데이터 삭제</button></p>

@@ -1638,7 +1638,7 @@ function renderLandingRings(){
     </svg><span>${i+1}월</span></div>`;
   }).join('');
   requestAnimationFrame(()=>requestAnimationFrame(()=>box.querySelectorAll('.ln-arc').forEach(c=>c.style.strokeDashoffset='0')));
-  const mk=$('lnMark');if(mk){let o='',C=2*Math.PI*12;const cols=['--p0','--p1','--p2','--p3','--p4','--p6'];for(let k=0;k<12;k++){o+=`<circle cx="16" cy="16" r="12" fill="none" stroke="var(${cols[k%6]})" stroke-width="6" stroke-dasharray="${(C/12-1.3).toFixed(2)} ${C.toFixed(2)}" transform="rotate(${-90+k*30} 16 16)"/>`}mk.innerHTML=o}
+  const mk=$('lnMark');paintMarks();if(false&&mk){let o='',C=2*Math.PI*12;const cols=['--p0','--p1','--p2','--p3','--p4','--p6'];for(let k=0;k<12;k++){o+=`<circle cx="16" cy="16" r="12" fill="none" stroke="var(${cols[k%6]})" stroke-width="6" stroke-dasharray="${(C/12-1.3).toFixed(2)} ${C.toFixed(2)}" transform="rotate(${-90+k*30} 16 16)"/>`}mk.innerHTML=o}
 }
 function cleanAuthUrl(){
   // 로그인 후 주소창에 남은 일회용 코드(?code=...)나 오류 표시를 지워요
@@ -1693,3 +1693,32 @@ async function boot(){
 boot();
 $('lgCancel').onclick=()=>lgdlg().close();
 $('lgForm').addEventListener('submit',e=>{e.preventDefault();saveLg()});
+
+/* ---------- 앱 설치 (PWA) ---------- */
+function paintMarks(){
+  const C=2*Math.PI*12,cols=['--p0','--p1','--p2','--p3','--p4','--p6'];let o='';
+  for(let k=0;k<12;k++)o+=`<circle cx="16" cy="16" r="12" fill="none" stroke="var(${cols[k%6]})" stroke-width="6" stroke-dasharray="${(C/12-1.3).toFixed(2)} ${C.toFixed(2)}" transform="rotate(${-90+k*30} 16 16)"/>`;
+  document.querySelectorAll('#lnMark,.js-mark').forEach(el=>{if(!el.innerHTML)el.innerHTML=o});
+}
+const isStandalone=()=>matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
+const isIOS=()=>/iphone|ipad|ipod/i.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+let deferredInstall=null;
+function installDismissed(){try{return localStorage.getItem('gagyebu.installHide')==='1'}catch(e){return false}}
+function showInstall(mode){
+  if(isStandalone()||installDismissed())return;
+  const box=$('installBox');if(!box)return;paintMarks();
+  if(mode==='ios'){$('installMsg').textContent='Safari 아래 공유 버튼 → "홈 화면에 추가"를 누르면 앱처럼 쓸 수 있어요.';$('installBtn').hidden=true}
+  else{$('installMsg').textContent='홈 화면에 추가하면 주소창 없이 앱처럼 열려요.';$('installBtn').hidden=false}
+  box.hidden=false;
+}
+window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredInstall=e;showInstall('prompt')});
+window.addEventListener('appinstalled',()=>{deferredInstall=null;$('installBox').hidden=true;toast('앱으로 설치했어요')});
+$('installBtn').addEventListener('click',async()=>{
+  if(!deferredInstall)return;deferredInstall.prompt();
+  try{await deferredInstall.userChoice}catch(e){}deferredInstall=null;$('installBox').hidden=true;
+});
+$('installClose').addEventListener('click',()=>{$('installBox').hidden=true;try{localStorage.setItem('gagyebu.installHide','1')}catch(e){}});
+if(isIOS()&&!isStandalone())showInstall('ios');
+if('serviceWorker' in navigator&&location.protocol==='https:'){
+  window.addEventListener('load',()=>navigator.serviceWorker.register('/sw.js').catch(()=>{}));
+}
