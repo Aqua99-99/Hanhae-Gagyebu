@@ -1,6 +1,8 @@
 <div align="center">
 
-# 💰 한 해 가계부
+<img src="docs/logo.svg" alt="한 해 가계부 로고" width="72">
+
+# 한 해 가계부
 
 **캘린더와 도넛 차트로 한 해의 수입·지출을 한눈에 보는 웹 가계부**
 
