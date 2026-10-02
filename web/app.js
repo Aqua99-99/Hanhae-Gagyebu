@@ -1434,7 +1434,7 @@ $('restoreFile').addEventListener('change',async e=>{
 function loadXLSX(){
   if(window.XLSX)return Promise.resolve(window.XLSX);
   return new Promise((res,rej)=>{const sc=document.createElement('script');
-    sc.src='vendor/xlsx.full.min.js';
+    sc.src='vender/xlsx.full.min.js';
     sc.onload=()=>res(window.XLSX);sc.onerror=()=>rej(new Error('load'));document.head.appendChild(sc)});
 }
 async function exportXlsx(){
