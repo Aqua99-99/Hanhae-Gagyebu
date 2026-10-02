@@ -1619,6 +1619,10 @@ async function googleLogin(btn){
   if(error){document.querySelectorAll('.js-google').forEach(b=>b.disabled=false);$('auErr').textContent='구글 로그인을 시작하지 못했어요. 잠시 후 다시 시도해 주세요.'}
 }
 document.querySelectorAll('.js-google').forEach(b=>b.addEventListener('click',()=>googleLogin(b)));
+// 구글 화면에서 '뒤로 가기'로 돌아오면 브라우저가 눌린 상태 그대로 페이지를 복원해서, 버튼을 다시 풀어줘요
+function resetGoogleButtons(){document.querySelectorAll('.js-google').forEach(b=>b.disabled=false)}
+window.addEventListener('pageshow',resetGoogleButtons);
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')resetGoogleButtons()});
 /* 첫 화면의 열두 달 도넛 (예시 숫자) */
 const LN_DEMO=[[350,86],[346,64],[320,63],[367,60],[320,74],[348,58],[320,82],[320,64],[367,77],[320,48],[338,67],[320,85]];
 const LN_SPLIT=[['--p0',.27],['--p1',.36],['--p2',.12],['--p3',.1],['--p4',.08],['--p5',.07]];
