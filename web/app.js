@@ -1973,7 +1973,7 @@ function receiptItems(lines){
   const out=[];
   for(const l of lines.slice(st+1,en)){
     if(!/[가-힣]/.test(l))continue;
-    let t=l.replace(/^\s*[A-Za-z]?[0-9OoIl]{2,3}[.)]?\s*(?=[가-힣(A-Za-z])/,'').replace(/\b\d{6,}\b/g,' ').replace(/(\d{1,3}(?:[,.]\d{3})+|\b\d+\b|[#*@])/g,' ').replace(/\s+/g,' ').trim();
+    let t=l.replace(/^[^가-힣]{0,6}?(?=[가-힣])/,m=>/[가-힣A-Za-z]{2,}\(/.test(m)?m:'').replace(/(^|\s)[)\]}]+(?=[가-힣])/g,'$1').replace(/\(\s*\)/g,'').replace(/\b\d{6,}\b/g,' ').replace(/(\d{1,3}(?:[,.]\d{3})+|\b\d+\b|[#*@])/g,' ').replace(/\s+/g,' ').trim();
     if(!/[가-힣]/.test(t)||/(단\s*가|수\s*량|금\s*액|할\s*인|쿠\s*폰|면\s*세|과\s*세)/.test(t))continue;
     t=t.slice(0,20);if(!out.includes(t))out.push(t);
     if(out.length>=8)break;
@@ -2080,43 +2080,61 @@ function toTensorBGR(ctx,w,h,mean,std){
     out[k]=(b-mean[0])/std[0];out[n+k]=(g-mean[1])/std[1];out[2*n+k]=(r-mean[2])/std[2]}
   return out;
 }
-// 1) 글자가 있는 곳 찾기 (DB 모델)
+// 1) 글자가 있는 곳 찾기 (DB 모델) — 기울어진 줄도 각도까지 계산해요
 async function pdlDetect(full){
   const w0=full.width,h0=full.height,long=Math.max(w0,h0),short=Math.min(w0,h0);
-  let s=Math.min(1,1600/long);if(short*s<736)s=Math.min(736/short,2200/long);
+  let s=Math.min(1,2400/long);if(short*s<960)s=Math.min(960/short,2800/long);
   const W=Math.max(32,Math.round(w0*s/32)*32),H=Math.max(32,Math.round(h0*s/32)*32);
   const c=document.createElement('canvas');c.width=W;c.height=H;const x=c.getContext('2d',{willReadFrequently:true});x.drawImage(full,0,0,W,H);
   const data=toTensorBGR(x,W,H,[.485,.456,.406],[.229,.224,.225]);
   const res=await pdlDet.run({[pdlDet.inputNames[0]]:new ort.Tensor('float32',data,[1,3,H,W])});
   const out=res[pdlDet.outputNames[0]],map=out.data,mw=out.dims[out.dims.length-1],mh=out.dims[out.dims.length-2];
-  const seen=new Uint8Array(mw*mh),stack=new Int32Array(mw*mh),boxes=[];
-  for(let i=0;i<mw*mh;i++){
+  const N=mw*mh,seen=new Uint8Array(N),stack=new Int32Array(N),comp=new Int32Array(N),boxes=[];
+  const sx=w0/mw,sy=h0/mh;
+  for(let i=0;i<N;i++){
     if(seen[i]||map[i]<=.3)continue;
-    let sp=0,minx=1e9,miny=1e9,maxx=-1,maxy=-1,sum=0,cnt=0;stack[sp++]=i;seen[i]=1;
-    while(sp){const p=stack[--sp],px=p%mw,py=(p/mw)|0;sum+=map[p];cnt++;
-      if(px<minx)minx=px;if(px>maxx)maxx=px;if(py<miny)miny=py;if(py>maxy)maxy=py;
-      const nb=[p-1,p+1,p-mw,p+mw];
-      for(let q=0;q<4;q++){const n=nb[q];if(n<0||n>=mw*mh)continue;if((q===0&&px===0)||(q===1&&px===mw-1))continue;if(!seen[n]&&map[n]>.3){seen[n]=1;stack[sp++]=n}}}
-    const bw=maxx-minx+1,bh=maxy-miny+1;
-    if(cnt<12||bw<4||bh<3||sum/cnt<.55)continue;
-    const d=(bw*bh*1.6)/(2*(bw+bh));
-    const sx=w0/mw,sy=h0/mh;
-    boxes.push({x0:Math.max(0,(minx-d)*sx),y0:Math.max(0,(miny-d)*sy),x1:Math.min(w0,(maxx+1+d)*sx),y1:Math.min(h0,(maxy+1+d)*sy)});
+    let sp=0,cn=0,sum=0,mx=0,my=0;stack[sp++]=i;seen[i]=1;
+    while(sp){const p=stack[--sp],px=p%mw,py=(p/mw)|0;comp[cn++]=p;sum+=map[p];mx+=px;my+=py;
+      if(px>0&&!seen[p-1]&&map[p-1]>.3){seen[p-1]=1;stack[sp++]=p-1}
+      if(px<mw-1&&!seen[p+1]&&map[p+1]>.3){seen[p+1]=1;stack[sp++]=p+1}
+      if(py>0&&!seen[p-mw]&&map[p-mw]>.3){seen[p-mw]=1;stack[sp++]=p-mw}
+      if(py<mh-1&&!seen[p+mw]&&map[p+mw]>.3){seen[p+mw]=1;stack[sp++]=p+mw}}
+    if(cn<12||sum/cn<.55)continue;
+    mx/=cn;my/=cn;
+    // 실제 이미지 좌표로 바꿔서 기울기(주축) 계산
+    let cxx=0,cyy=0,cxy=0;
+    for(let k=0;k<cn;k++){const p=comp[k],dx=((p%mw)-mx)*sx,dy=(((p/mw)|0)-my)*sy;cxx+=dx*dx;cyy+=dy*dy;cxy+=dx*dy}
+    let th=.5*Math.atan2(2*cxy,cxx-cyy);
+    if(Math.abs(th)>Math.PI/6)th=0; // 너무 많이 기운 건 노이즈로 보고 수평으로
+    const ca=Math.cos(th),sa=Math.sin(th);
+    let u0=1e9,u1=-1e9,v0=1e9,v1=-1e9;
+    for(let k=0;k<cn;k++){const p=comp[k],dx=((p%mw)-mx)*sx,dy=(((p/mw)|0)-my)*sy;const u=dx*ca+dy*sa,v=-dx*sa+dy*ca;
+      if(u<u0)u0=u;if(u>u1)u1=u;if(v<v0)v0=v;if(v>v1)v1=v}
+    let L=u1-u0+sx,Hh=v1-v0+sy;
+    if(L<6||Hh<4)continue;
+    const d=(L*Hh*1.6)/(2*(L+Hh));
+    const cu=(u0+u1)/2,cv=(v0+v1)/2;
+    const cx=mx*sx+sx/2+cu*ca-cv*sa,cy=my*sy+sy/2+cu*sa+cv*ca;
+    boxes.push({cx,cy,w:L+2*d,h:Hh+2*d,th,x0:cx-(L/2+d),y0:cy-(Hh/2+d),x1:cx+(L/2+d),y1:cy+(Hh/2+d)});
   }
   return boxes;
 }
-// 2) 찾은 줄마다 글자 읽기 (한국어 인식 모델 + CTC)
-async function pdlRecognize(full,b){
-  const cw=b.x1-b.x0,ch=b.y1-b.y0;if(cw<4||ch<4||ch>cw*1.6)return null;
-  const tryH=async H=>{
-    const W=Math.max(16,Math.min(1800,Math.round(H*cw/ch)));
-    const c=document.createElement('canvas');c.width=W;c.height=H;const x=c.getContext('2d',{willReadFrequently:true});
-    x.imageSmoothingQuality='high';x.drawImage(full,b.x0,b.y0,cw,ch,0,0,W,H);
-    const data=toTensorBGR(x,W,H,[.5,.5,.5],[.5,.5,.5]);
-    return pdlRec.run({[pdlRec.inputNames[0]]:new ort.Tensor('float32',data,[1,3,H,W])});
-  };
-  let res;
-  try{res=await tryH(pdlRecH)}catch(e){if(pdlRecH===48){pdlRecH=32;res=await tryH(32)}else throw e}
+// 줄 하나를 기울기에 맞춰 반듯하게 잘라내요 (enh: 흐린 글자를 진하게)
+function pdlCrop(full,b,H,grow,enh){
+  const bw=b.w*(1+(grow||0)*.4),bh=b.h*(1+(grow||0));
+  const W=Math.max(16,Math.min(2000,Math.round(H*bw/bh)));
+  const c=document.createElement('canvas');c.width=W;c.height=H;const x=c.getContext('2d',{willReadFrequently:true});
+  x.fillStyle='#fff';x.fillRect(0,0,W,H);x.imageSmoothingQuality='high';
+  x.translate(W/2,H/2);x.scale(W/bw,H/bh);x.rotate(-b.th);x.drawImage(full,-b.cx,-b.cy);x.setTransform(1,0,0,1,0,0);
+  if(enh){const d=x.getImageData(0,0,W,H),a=d.data;let mn=255,mxv=0;
+    for(let k=0;k<a.length;k+=4){const g=.299*a[k]+.587*a[k+1]+.114*a[k+2];a[k]=g;if(g<mn)mn=g;if(g>mxv)mxv=g}
+    const r=Math.max(30,mxv-mn);for(let k=0;k<a.length;k+=4){const g=Math.max(0,Math.min(255,(a[k]-mn)*255/r));a[k]=a[k+1]=a[k+2]=g}x.putImageData(d,0,0)}
+  return {x,W};
+}
+async function pdlRunRec(full,b,grow,enh){
+  const go=async H=>{const {x,W}=pdlCrop(full,b,H,grow,enh);const data=toTensorBGR(x,W,H,[.5,.5,.5],[.5,.5,.5]);
+    return pdlRec.run({[pdlRec.inputNames[0]]:new ort.Tensor('float32',data,[1,3,H,W])})};
+  let res;try{res=await go(pdlRecH)}catch(e){if(pdlRecH===48){pdlRecH=32;res=await go(32)}else throw e}
   const out=res[pdlRec.outputNames[0]],T=out.dims[1],C=out.dims[2],p=out.data;
   let prev=-1,text='',conf=0,n=0;
   for(let t=0;t<T;t++){
@@ -2125,8 +2143,19 @@ async function pdlRecognize(full,b){
     if(bi!==0&&bi!==prev){text+=bi-1<pdlDict.length?pdlDict[bi-1]:' ';conf+=pv;n++}
     prev=bi;
   }
-  text=text.trim();if(!text)return null;
-  return {text,conf:n?conf/n:0,...b,cy:(b.y0+b.y1)/2,h:ch};
+  return {text:text.trim(),conf:n?conf/n:0};
+}
+// 2) 줄마다 글자 읽기 — 확신이 낮으면 조금 넓게, 또 진하게 다시 읽어서 가장 확신 높은 결과를 써요
+async function pdlRecognize(full,b){
+  if(b.w<4||b.h<4||b.h>b.w*1.6)return null;
+  let best=await pdlRunRec(full,b,0,false);
+  if(best.conf<.92){
+    for(const [g,e] of [[.15,false],[0,true],[.15,true]]){
+      const r=await pdlRunRec(full,b,g,e);if(r.text&&r.conf>best.conf)best=r;if(best.conf>=.95)break;
+    }
+  }
+  if(!best.text)return null;
+  return {text:best.text,conf:best.conf,...b,h:b.h};
 }
 async function paddleRead(file){
   await pdlInit();
@@ -2136,7 +2165,7 @@ async function paddleRead(file){
   if(!boxes.length)return '';
   const items=[];
   for(let i=0;i<boxes.length;i++){
-    if(i%3===0){rcProgress(.38+.58*i/boxes.length,`AI가 글자를 읽고 있어요… (${i+1}/${boxes.length})`);await new Promise(r=>setTimeout(r,0))}
+    rcProgress(.38+.58*i/boxes.length,`AI가 글자를 꼼꼼히 읽고 있어요… (${i+1}/${boxes.length})`);if(i%2===0)await new Promise(r=>setTimeout(r,0));
     const r=await pdlRecognize(full,boxes[i]);if(r&&r.conf>=.45)items.push(r);
   }
   // 같은 높이의 조각을 한 줄로 묶어요
