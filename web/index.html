@@ -561,6 +561,11 @@ html.is-hidden .ss,html.is-hidden .sp{animation-play-state:paused}
   #home header.top .btn-add{padding:10px 14px;white-space:nowrap}
   #home header.top>[data-act="logout"]{justify-self:start}
 }
+.cam-wrap{position:relative;display:flex}
+.rc-menu{position:absolute;right:0;top:calc(100% + 6px);z-index:30;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.18);padding:6px;min-width:180px;display:flex;flex-direction:column}
+.rc-menu button{border:0;background:none;display:flex;align-items:center;gap:10px;padding:11px 12px;border-radius:8px;font-size:15px;text-align:left;white-space:nowrap}
+.rc-menu button:hover{background:var(--soft)}
+.rc-menu svg{width:20px;height:20px;flex:0 0 auto}
 </style>
 </head>
 <body>
@@ -713,10 +718,17 @@ html.is-hidden .ss,html.is-hidden .sp{animation-play-state:paused}
   <section class="quick" aria-label="말로 입력">
     <form id="qForm" class="qrow" autocomplete="off">
       <input class="inp" id="qText" placeholder="예: 어제 스타벅스 5600원 카드로">
-      <label class="btn-ghost cam-btn" for="rcFile" title="영수증 사진으로 입력" aria-label="영수증 사진으로 입력">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
-        <span>영수증</span>
-      </label>
+      <div class="cam-wrap">
+        <button type="button" class="btn-ghost cam-btn" id="rcBtn" title="영수증 사진으로 입력" aria-label="영수증 사진으로 입력" aria-haspopup="true" aria-expanded="false">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
+          <span>영수증</span>
+        </button>
+        <div class="rc-menu" id="rcMenu" role="menu" hidden>
+          <button type="button" role="menuitem" data-rc="cam"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>사진 찍기</button>
+          <button type="button" role="menuitem" data-rc="pick"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 17l-5-5-9 8"/></svg>앨범에서 고르기</button>
+        </div>
+      </div>
+      <input type="file" id="rcCam" accept="image/*" capture="environment" hidden>
       <input type="file" id="rcFile" accept="image/*" hidden>
       <button class="btn-add" type="submit">입력</button>
     </form>

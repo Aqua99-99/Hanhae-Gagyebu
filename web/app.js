@@ -2331,10 +2331,18 @@ async function rcServerText(file){
     const j=await r.json();return {text:String(j&&j.text||'').slice(0,20000)};
   }catch(e){return {err:'net'}}finally{clearInterval(tick);clearTimeout(to)}
 }
-$('rcFile').addEventListener('change',async e=>{
-  const f=e.target.files&&e.target.files[0];e.target.value='';
+// 영수증 버튼: '사진 찍기 / 앨범에서 고르기'를 직접 보여줘요 (안드로이드는 기본으로 앨범만 열리는 경우가 있어서)
+function rcMenuClose(){$('rcMenu').hidden=true;$('rcBtn').setAttribute('aria-expanded','false')}
+$('rcBtn').addEventListener('click',e=>{e.stopPropagation();const m=$('rcMenu');m.hidden=!m.hidden;$('rcBtn').setAttribute('aria-expanded',String(!m.hidden))});
+$('rcMenu').addEventListener('click',e=>{const b=e.target.closest('[data-rc]');if(!b)return;rcMenuClose();(b.dataset.rc==='cam'?$('rcCam'):$('rcFile')).click()});
+document.addEventListener('click',e=>{if(!$('rcMenu').hidden&&!e.target.closest('.cam-wrap'))rcMenuClose()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('rcMenu').hidden)rcMenuClose()});
+const onRcPick=e=>{const f=e.target.files&&e.target.files[0];e.target.value='';handleReceipt(f)};
+$('rcCam').addEventListener('change',onRcPick);
+$('rcFile').addEventListener('change',onRcPick);
+async function handleReceipt(f){
   if(!f||rcBusy)return;
-  if(!/^image\//.test(f.type)){renderQ('사진 파일만 읽을 수 있어요.');return}
+  if(f.type&&!/^image\//.test(f.type)){renderQ('사진 파일만 읽을 수 있어요.');return}
   rcBusy=true;clearTimeout(rcIdle);
   try{
     rcProgress(.02,'사진을 준비하고 있어요…');
@@ -2367,7 +2375,7 @@ $('rcFile').addEventListener('change',async e=>{
   }catch(err){
     renderQ(err&&err.message==='load'?'글자 인식 도구를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.':'영수증을 읽지 못했어요. 다른 사진으로 다시 시도해 주세요.');
   }finally{rcBusy=false;rcScheduleTerminate()}
-});
+}
 
 
 /* 첫 화면 계절 배경: 지금 계절부터 시작해요 (3~5월 봄, 6~8월 여름, 9~11월 가을, 12~2월 겨울) */
