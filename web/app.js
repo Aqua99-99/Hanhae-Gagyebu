@@ -411,6 +411,7 @@ function openLgDialog(id){
   lgdlg().showModal?lgdlg().showModal():lgdlg().setAttribute('open','');
   setTimeout(()=>$('lgName').focus(),50);
 }
+$('lgTitleBtn').addEventListener('click',()=>{if(S.cur)openLgDialog(S.cur)});
 function saveLg(){
   const v=$('lgName').value.trim();
   if(!v){$('lgErr').textContent='이름을 입력해 주세요.';return}

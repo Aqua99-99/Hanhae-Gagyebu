@@ -566,6 +566,11 @@ html.is-hidden .ss,html.is-hidden .sp{animation-play-state:paused}
 .rc-menu button{border:0;background:none;display:flex;align-items:center;gap:10px;padding:11px 12px;border-radius:8px;font-size:15px;text-align:left;white-space:nowrap}
 .rc-menu button:hover{background:var(--soft)}
 .rc-menu svg{width:20px;height:20px;flex:0 0 auto}
+.lg-title-btn{all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:8px;max-width:100%;border-radius:8px}
+.lg-title-btn span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lg-title-btn svg{width:.62em;height:.62em;opacity:.35;flex:0 0 auto}
+.lg-title-btn:hover svg,.lg-title-btn:focus-visible svg{opacity:.8}
+.lg-title-btn:focus-visible{outline:2px solid var(--ink);outline-offset:3px}
 </style>
 </head>
 <body>
@@ -680,7 +685,7 @@ html.is-hidden .ss,html.is-hidden .sp{animation-play-state:paused}
   <section id="ledgerView" hidden>
   <header class="top">
     <button class="p-back backtop" data-act="home">‹ 가계부 목록</button>
-    <h1 id="lgTitleH">가계부</h1>
+    <h1><button type="button" class="lg-title-btn" id="lgTitleBtn" title="가계부 이름 바꾸기" aria-label="가계부 이름 바꾸기"><span id="lgTitleH">가계부</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M14 6l4 4"/></svg></button></h1>
     <div class="year" role="group" aria-label="연도 선택">
       <button id="yPrev" aria-label="이전 연도">‹</button>
       <span id="yLabel"></span>
