@@ -553,6 +553,14 @@ html.is-hidden .ss,html.is-hidden .sp{animation-play-state:paused}
 .ic-opt.on{border-color:var(--ink);color:var(--ink)}
 .ic-opt .ci{width:30px;height:30px}
 .entry .ci.sm{margin-right:2px}
+@media (max-width:820px){
+  #home header.top{display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center}
+  #home header.top h1{grid-column:1/-1;width:auto;font-size:22px;white-space:nowrap}
+  #home header.top .spacer,#home header.top .sync,#home header.top .me{display:none}
+  #home header.top .btn-ghost{padding:10px 12px}
+  #home header.top .btn-add{padding:10px 14px;white-space:nowrap}
+  #home header.top>[data-act="logout"]{justify-self:start}
+}
 </style>
 </head>
 <body>

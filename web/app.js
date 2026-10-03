@@ -1886,16 +1886,28 @@ async function boot(){
     document.querySelector('.wrap').innerHTML='<div class="cfg-err"><b>설정이 필요해요</b><br>config.js에 Supabase 주소와 anon 키를 넣어주세요. 자세한 방법은 README를 확인해 주세요.</div>';return;
   }
   const authNotice=takeAuthError();
-  sb=window.supabase.createClient(C.SUPABASE_URL,C.SUPABASE_ANON_KEY,{auth:{flowType:'pkce',persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
+  // 브라우저 잠금 기능(LockManager)에 로그인 확인이 걸려 멈추는 일이 있어서, 잠금 없이 바로 실행하도록 해요
+  const noLock=async(name,timeout,fn)=>await fn();
+  sb=window.supabase.createClient(C.SUPABASE_URL,C.SUPABASE_ANON_KEY,{auth:{flowType:'pkce',persistSession:true,autoRefreshToken:true,detectSessionInUrl:true,lock:noLock}});
+  let decided=false;
+  const decide=session=>{if(session&&session.user){decided=true;startApp(session.user)}else if(!decided){decided=true;if(authNotice)setTimeout(()=>{$('auErr').textContent=authNotice},0);authUI()}};
   sb.auth.onAuthStateChange((ev,session)=>{
-    if(ev==='SIGNED_IN'&&session)startApp(session.user);
-    if(ev==='SIGNED_OUT'){ME=null;authUI()}
+    if((ev==='SIGNED_IN'||ev==='INITIAL_SESSION'||ev==='TOKEN_REFRESHED')&&session){decided=true;startApp(session.user)}
+    else if(ev==='INITIAL_SESSION'&&!session)decide(null);
+    if(ev==='SIGNED_OUT'){ME=null;decided=true;authUI()}
   });
-  const {data:{session}}=await sb.auth.getSession();
-  if(authNotice&&!session)setTimeout(()=>{$('auErr').textContent=authNotice},0);
-  if(session)startApp(session.user);else authUI();
+  // 로그인 확인이 3초 안에 끝나지 않으면 일단 첫 화면을 보여줘요 (빈 화면으로 멈추지 않게)
+  const guard=setTimeout(()=>{if(!decided)decide(null)},3000);
+  try{
+    const {data:{session}}=await sb.auth.getSession();
+    clearTimeout(guard);
+    if(session)decide(session);else if(!ME)decide(null);
+  }catch(e){clearTimeout(guard);if(!ME)decide(null)}
 }
-boot();
+// 어떤 이유로든 화면이 하나도 안 보이면 첫 화면이라도 보여줘요
+window.addEventListener('error',()=>{try{if(!ME&&$('auth').hidden&&$('home').hidden&&$('ledgerView').hidden)authUI()}catch(e){}});
+window.addEventListener('unhandledrejection',()=>{try{if(!ME&&$('auth').hidden&&$('home').hidden&&$('ledgerView').hidden)authUI()}catch(e){}});
+boot().catch(()=>{try{authUI()}catch(e){}});
 $('lgCancel').onclick=()=>lgdlg().close();
 $('lgForm').addEventListener('submit',e=>{e.preventDefault();saveLg()});
 
