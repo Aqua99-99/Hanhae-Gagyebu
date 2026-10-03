@@ -2,7 +2,7 @@
    - 앱 화면 파일만 저장해 두고, 인터넷이 끊겨도 화면이 열리게 해요.
    - 가계부 데이터(Supabase)와 로그인 요청은 절대 저장하지 않아요.
    - 화면 파일은 항상 인터넷에서 최신을 먼저 받고, 실패할 때만 저장본을 써요. */
-const CACHE = 'gagyebu-shell-v4';
+const CACHE = 'gagyebu-shell-v5';
 const SHELL = ['/', '/index.html', '/app.js', '/theme.js', '/config.js', '/vender/supabase.js',
   '/manifest.webmanifest', '/icons/icon-192.png', '/icons/icon-512.png', '/privacy.html'];
 

@@ -211,28 +211,71 @@ function cleanTomb(t){
   return o;
 }
 function syncCur(){if(S.cur&&LEDGERS[S.cur]){const L=LEDGERS[S.cur];L.entries=S.entries;L.cats=S.cats;L.settings=S.settings}}
+/* 동기화 기억 (앱을 껐다 켜도 남아요)
+   - seenAt: 서버 문서마다 마지막으로 확인한 저장 시각
+   - okHash: 서버에 '확실히' 올라간 문서 내용의 지문(짧은 요약값)
+   - idxCache: 마지막으로 본 서버의 가계부 목록 (undefined=아직 모름, null=서버에 없음)
+   이걸 기억해 두면 앱을 새로 켤 때도 바뀐 것만 받고, 안 바뀐 건 다시 올리지 않아요. */
+let seenAt={},okHash={},idxCache;
+const savedJSON={}; // 지금 서버에 올렸거나 올리는 중인 문서 지문
+// 문자열을 짧은 지문으로 바꿔요 (같은 내용이면 같은 지문)
+function hashStr(s){let h1=0xdeadbeef,h2=0x41c6ce57;for(let i=0;i<s.length;i++){const c=s.charCodeAt(i);h1=Math.imul(h1^c,2654435761);h2=Math.imul(h2^c,1597334677)}
+  h1=Math.imul(h1^(h1>>>16),2246822507)^Math.imul(h2^(h2>>>13),3266489909);h2=Math.imul(h2^(h2>>>16),2246822507)^Math.imul(h1^(h1>>>13),3266489909);
+  return (h2>>>0).toString(36)+'.'+(h1>>>0).toString(36)+'.'+s.length.toString(36)}
+const DOC_RE=/^[A-Za-z0-9_-]{1,80}$/;
+function cleanMap(o,ok){const out={};if(!o||typeof o!=='object')return out;let n=0;
+  for(const [k,v] of Object.entries(o)){if(n>=3000)break;if(DOC_RE.test(k)&&ok(v)){out[k]=v;n++}}return out}
 function loadLocal(){
+  seenAt={};okHash={};idxCache=undefined;for(const k of Object.keys(savedJSON))delete savedJSON[k];
   try{
     const r=localStorage.getItem(LS2);
     if(r){const o=JSON.parse(r);IDX=cleanIndex(o.index);IU=sint(o.iu,0,9e15)||0;DELL=cleanTomb(o.del);LEDGERS={};
-      for(const it of IDX)LEDGERS[it.id]=initKnown(normLedger(o.ledgers&&o.ledgers[it.id]));return}
+      const sy=(o.sync&&typeof o.sync==='object')?o.sync:{};
+      const ys=(sy.ys&&typeof sy.ys==='object')?sy.ys:{},at=(sy.at&&typeof sy.at==='object')?sy.at:{};
+      for(const it of IDX){const L=initKnown(normLedger(o.ledgers&&o.ledgers[it.id]));
+        if(Array.isArray(ys[it.id]))L._years=ys[it.id].filter(y=>typeof y==='string'&&/^\d{4}$/.test(y)).slice(0,200);
+        const ok=sint(at[it.id],0,9e15);if(ok)L._ok=ok;
+        LEDGERS[it.id]=L}
+      seenAt=cleanMap(sy.seen,v=>Number.isFinite(v));
+      okHash=cleanMap(sy.ok,v=>typeof v==='string'&&v.length<40);
+      Object.assign(savedJSON,okHash);
+      if(sy.idx===null)idxCache=null;else if(sy.idx&&typeof sy.idx==='object')idxCache=sy.idx;
+      return}
   }catch(e){}
 }
 let IU=0,DELL={}; // 가계부 목록을 마지막으로 바꾼 시각, 지운 가계부
 const noPriv=(k,v)=>(typeof k==='string'&&k.startsWith('_'))?undefined:v;
-function saveLocal(){syncCur();try{localStorage.setItem(LS2,JSON.stringify({index:IDX,iu:IU,del:DELL,ledgers:LEDGERS},noPriv))}catch(e){}}
+/* 이 기기에 저장: 바로 저장하지 않고 잠깐(0.3초) 모았다가 한 번에 저장해요.
+   기록을 여러 개 연달아 바꿔도 저장은 한 번만 해서 휴대폰이 덜 버벅여요.
+   앱을 닫거나 다른 앱으로 넘어갈 때는 기다리지 않고 바로 저장해요. */
+let saveT=null,noSave=false;
+function saveLocal(){syncCur();if(noSave)return;clearTimeout(saveT);saveT=setTimeout(saveLocalNow,300)}
+function saveLocalNow(){
+  clearTimeout(saveT);saveT=null;if(noSave)return;syncCur();
+  const ys={},at={};for(const [id,L] of Object.entries(LEDGERS)){if(L&&L._years)ys[id]=L._years;if(L&&L._ok)at[id]=L._ok}
+  const sync={seen:seenAt,ok:okHash,idx:idxCache===undefined?undefined:idxCache,ys,at};
+  try{localStorage.setItem(LS2,JSON.stringify({index:IDX,iu:IU,del:DELL,ledgers:LEDGERS,sync},noPriv));saveLocalNow._warned=false}
+  catch(e){
+    // 저장 공간이 꽉 차면 조용히 넘어가지 않고 알려줘요 (한 번만)
+    if(!saveLocalNow._warned){saveLocalNow._warned=true;
+      toast(DB?'이 기기 저장 공간이 꽉 찼어요. 서버에는 저장되고 있지만, 인터넷이 끊기면 새 기록이 사라질 수 있어요. 오래된 기록을 백업 후 정리해 주세요.'
+              :'이 기기 저장 공간이 꽉 차서 방금 기록을 저장하지 못했어요. 인터넷에 연결해 주세요.')}
+  }
+}
+function flushLocal(){if(saveT)saveLocalNow()}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')flushLocal()});
+window.addEventListener('pagehide',flushLocal);
 function setSync(t){document.querySelectorAll('.sync').forEach(n=>n.textContent=t)}
-const savedJSON={};
 function writeDoc(docId,data){
   if(!DB){setSync('이 기기에 저장됨');return}
-  const js=JSON.stringify(data);
+  const js=hashStr(JSON.stringify(data));
   if(savedJSON[docId]===js)return;
   savedJSON[docId]=js;
   clearTimeout(timers[docId]);setSync('저장 중…');
   timers[docId]=setTimeout(async()=>{
     const ref=DB.doc(BASE+'/'+docId);
-    // 저장에 성공하면 '서버에 올라간 시각'을 기억해 둬요 → 다음 동기화 때 내가 올린 건 다시 안 받아요
-    const w=()=>ref.set({...data,updated:Date.now()}).then(at=>{if(at)seenAt[docId]=at;if(docId==='index')idxCache=data});
+    // 저장에 성공하면 '서버에 올라간 시각'과 '내용 지문'을 기억해 둬요 → 다음 동기화 때 내가 올린 건 다시 안 받아요
+    const w=()=>ref.set({...data,updated:Date.now()}).then(at=>{if(at)seenAt[docId]=at;okHash[docId]=js;if(docId==='index')idxCache=data;saveLocal()});
     try{await w();setSync('저장됨')}
     catch(e){
       if(e&&e.code==='unavailable')setTimeout(()=>w().then(()=>setSync('저장됨')).catch(()=>{delete savedJSON[docId];setSync('이 기기에 저장됨')}),800+Math.random()*800);
@@ -300,11 +343,16 @@ function mergeLedger(a,b){ // a: 이 기기, b: 서버
   const tomb={...b.tomb};for(const [k,v] of Object.entries(a.tomb||{}))if(!tomb[k]||v>tomb[k])tomb[k]=v;
   const map=new Map();
   for(const e of b.entries)map.set(e.id,e);
-  for(const e of a.entries){const o=map.get(e.id);if(!o||(e.u||0)>=(o.u||0))map.set(e.id,e)}
+  // 이 기기가 오래(170일 넘게) 서버와 못 맞췄다면, 그사이 '지운 표시'가 정리됐을 수 있어요.
+  // 그래서 마지막으로 서버와 똑같았던 시각(_ok) 이전 기록인데 서버에 없으면, 다른 기기에서 지운 것으로 봐요.
+  const stale=a._ok&&Date.now()-a._ok>170*864e5;
+  for(const e of a.entries){const o=map.get(e.id);
+    if(!o&&stale&&(e.u||0)<=a._ok)continue;
+    if(!o||(e.u||0)>=(o.u||0))map.set(e.id,e)}
   const entries=[...map.values()].filter(e=>!(tomb[e.id]&&tomb[e.id]>=(e.u||0)));
   const metaA=(a.mu||0)>(b.mu||0);
   const L={entries,cats:metaA?a.cats:b.cats,settings:metaA?a.settings:b.settings,tomb:cleanTomb(tomb),mu:Math.max(a.mu||0,b.mu||0)};
-  L._years=b._years||[];
+  L._years=b._years||[];L._ok=a._ok;
   return initKnown(L);
 }
 const sameLedger=(x,y)=>{if(!x||!y)return false;
@@ -339,11 +387,8 @@ function makeDB(userId){
 }
 let syncing=false,lastSync=0;
 /* 빠른 동기화
-   - seenAt: 서버 문서마다 '마지막으로 확인한 저장 시각'
-   - idxCache: 마지막으로 본 서버의 가계부 목록 (undefined=아직 모름, null=서버에 없음)
-   앱으로 돌아올 때 먼저 '저장 시각 목록'만 받아서, 시각이 바뀐 가계부만 내용을 다시 받아요.
-   아무것도 안 바뀌었으면 가벼운 요청 1번으로 끝나요. */
-let seenAt={},idxCache;
+   먼저 서버 문서들의 '저장 시각 목록'만 받아서, 시각이 바뀐 가계부만 내용을 다시 받아요.
+   아무것도 안 바뀌었으면 가벼운 요청 1번으로 끝나요. (seenAt 등은 위쪽 '동기화 기억' 참고) */
 const SKIP={};
 const ledgerOf=docId=>String(docId).split('__')[0];
 async function syncAll(){
@@ -404,12 +449,15 @@ async function syncAll(){
       const merged=mergeLedger(LEDGERS[it.id],srv);
       next[it.id]=merged;
       if(!sameLedger(merged,srv)){ // 서버가 뒤처져 있으면 합친 내용을 올려요
-        for(const k of Object.keys(savedJSON))if(k===it.id||k.startsWith(it.id+'__'))delete savedJSON[k];
+        const mine=k=>k===it.id||k.startsWith(it.id+'__');
+        for(const k of Object.keys(savedJSON))if(mine(k))delete savedJSON[k];
+        for(const k of Object.keys(okHash))if(mine(k))delete okHash[k];
         LEDGERS[it.id]=merged;writeLedgerTo(next,it.id);
       }else{
         // 서버와 같으면 다시 올리지 않도록 기억해 둬요
-        const g=splitYears(merged.entries);for(const y of Object.keys(g))savedJSON[yDoc(it.id,y)]=JSON.stringify({entries:g[y]});
-        savedJSON[it.id]=JSON.stringify({cats:merged.cats,settings:merged.settings,years:merged._years,tomb:merged.tomb,mu:merged.mu,v:3});
+        const g=splitYears(merged.entries);for(const y of Object.keys(g))okHash[yDoc(it.id,y)]=savedJSON[yDoc(it.id,y)]=hashStr(JSON.stringify({entries:g[y]}));
+        okHash[it.id]=savedJSON[it.id]=hashStr(JSON.stringify({cats:merged.cats,settings:merged.settings,years:merged._years,tomb:merged.tomb,mu:merged.mu,v:3}));
+        merged._ok=Date.now(); // 이 시각에 서버와 이 기기가 똑같았다는 표시
       }
     });
     // 받아온 문서의 저장 시각을 기억해 둬요 (다음엔 바뀐 것만 받게)
@@ -420,7 +468,9 @@ async function syncAll(){
     }
     IDX=finalList;LEDGERS=next;
     // 건너뛴 가계부도 이 기기에서 바뀐 게 있으면 올려요 (안 바뀐 문서는 저절로 건너뜀)
-    for(const id of skipped)writeLedger(id);
+    for(const id of skipped){writeLedger(id);
+      const L=LEDGERS[id],keys=[id,...(L._years||[]).map(y=>yDoc(id,y))];
+      if(keys.every(k=>okHash[k]&&savedJSON[k]===okHash[k]))L._ok=Date.now()} // 올릴 게 없으면 서버와 똑같은 상태
     if(pushIndex){IU=Math.max(IU,Date.now());delete savedJSON.index;writeDoc('index',{list:IDX,iu:IU,del:DELL})}
     IDX.forEach(it=>runFixedFor(it.id));
     saveLocal();
@@ -433,7 +483,7 @@ async function syncAll(){
 function writeLedgerTo(store,id){const keep=LEDGERS;LEDGERS=store;try{writeLedger(id)}finally{LEDGERS=keep}}
 async function connect(user){
   try{
-    DB=makeDB(user.id);BASE='u';seenAt={};idxCache=undefined; // 새로 연결하면 처음엔 전부 받아요
+    DB=makeDB(user.id);BASE='u';
     await syncAll();
   }catch(e){DB=null;setSync('오프라인 · 이 기기에만 저장 중')}
 }
@@ -1925,6 +1975,7 @@ async function startApp(user){
   await connect(user);
 }
 function clearAuthStorage(){
+  noSave=true;clearTimeout(saveT); // 로그아웃 뒤에 남은 저장이 다시 쓰이지 않게 막아요
   try{localStorage.removeItem(LS2)}catch(e){}
   try{Object.keys(localStorage).filter(k=>k.startsWith('sb-')).forEach(k=>localStorage.removeItem(k))}catch(e){}
   try{Object.keys(sessionStorage).filter(k=>k.startsWith('sb-')).forEach(k=>sessionStorage.removeItem(k))}catch(e){}
