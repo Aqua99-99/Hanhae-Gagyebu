@@ -834,7 +834,14 @@ $('fType').addEventListener('click',e=>{const b=e.target.closest('[data-ftype]')
 $('fCats').addEventListener('click',e=>{const b=e.target.closest('[data-pick]');if(b){S.pickCat=b.dataset.pick;renderPick()}});
 $('fDir').addEventListener('click',e=>{const b=e.target.closest('[data-fdir]');if(b){S.fDir=b.dataset.fdir;renderPick()}});
 $('fPay').addEventListener('click',e=>{const b=e.target.closest('[data-fpay]');if(b){S.fPay=b.dataset.fpay;renderPick()}});
-function showDlg(){dlg.showModal?dlg.showModal():dlg.setAttribute('open','');setTimeout(()=>$('fAmt').focus(),50)}
+// 폰(터치 화면)에서는 키보드를 바로 띄우지 않고 창 맨 위부터 보여줘요. PC에서는 금액 칸에 바로 입력할 수 있게 해요
+const TOUCH=matchMedia('(pointer:coarse)').matches;
+function showDlg(){
+  dlg.showModal?dlg.showModal():dlg.setAttribute('open','');
+  dlg.scrollTop=0;const card=dlg.querySelector('form,.card,.dlg-body');if(card)card.scrollTop=0;
+  if(TOUCH){try{document.activeElement&&document.activeElement.blur()}catch(e){}requestAnimationFrame(()=>{dlg.scrollTop=0;if(card)card.scrollTop=0})}
+  else setTimeout(()=>$('fAmt').focus(),50);
+}
 function openAdd(dateStr){
   S.editId=null;$('fTitle').textContent='기록 추가';$('fDelete').hidden=true;
   const y=S.year,m=S.month,isNow=y===now.getFullYear()&&m===now.getMonth();
