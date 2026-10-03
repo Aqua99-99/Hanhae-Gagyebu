@@ -231,7 +231,8 @@ function writeDoc(docId,data){
   clearTimeout(timers[docId]);setSync('저장 중…');
   timers[docId]=setTimeout(async()=>{
     const ref=DB.doc(BASE+'/'+docId);
-    const w=()=>ref.set({...data,updated:Date.now()});
+    // 저장에 성공하면 '서버에 올라간 시각'을 기억해 둬요 → 다음 동기화 때 내가 올린 건 다시 안 받아요
+    const w=()=>ref.set({...data,updated:Date.now()}).then(at=>{if(at)seenAt[docId]=at;if(docId==='index')idxCache=data});
     try{await w();setSync('저장됨')}
     catch(e){
       if(e&&e.code==='unavailable')setTimeout(()=>w().then(()=>setSync('저장됨')).catch(()=>{delete savedJSON[docId];setSync('이 기기에 저장됨')}),800+Math.random()*800);
@@ -282,6 +283,16 @@ async function loadLedger(id){
   const L=normLedger({entries,cats:m.cats,settings:m.settings,tomb:m.tomb,mu:m.mu});L._years=years;
   return L;
 }
+// 한꺼번에 받아온 문서 묶음(map)에서 가계부 하나를 만들어요 (loadLedger와 같은 결과)
+function ledgerFrom(id,map){
+  if(!map.has(id))return null;
+  const m=map.get(id)||{};
+  if(Array.isArray(m.entries)){const L=normLedger(m);L._years=[];return L}
+  const years=Array.isArray(m.years)?m.years.filter(y=>/^\d{4}$/.test(y)):[];
+  const entries=[];for(const y of years){const d=map.get(yDoc(id,y));if(d&&Array.isArray(d.entries))entries.push(...d.entries)}
+  const L=normLedger({entries,cats:m.cats,settings:m.settings,tomb:m.tomb,mu:m.mu});L._years=years;
+  return L;
+}
 function mergeLedger(a,b){ // a: 이 기기, b: 서버
   if(!a&&!b)return normLedger(null);
   if(!a)return initKnown(b);
@@ -304,23 +315,65 @@ function persistIndex(){IU=Date.now();saveLocal();writeDoc('index',{list:IDX,iu:
 /* Supabase 저장소: docs 테이블 (user_id, doc_id, data). 행 수준 보안(RLS)으로 본인 행만 읽고 쓸 수 있어요. */
 function makeDB(userId){
   const idOf=path=>String(path).split('/').pop();
-  return {doc(path){const docId=idOf(path);return {
+  const fail=()=>Object.assign(new Error('db'),{code:'unavailable'});
+  return {
+    // 내 문서들의 이름과 '마지막 저장 시각'만 받아와요 (내용은 안 받아서 아주 가벼워요)
+    async list(){const {data,error}=await sb.from('docs').select('doc_id,updated_at').eq('user_id',userId);
+      if(error||!Array.isArray(data))throw fail();
+      return data.map(r=>({id:String(r.doc_id),at:Date.parse(r.updated_at)||0}))},
+    // 필요한 문서 여러 개를 한 번에 받아와요
+    async getMany(ids){const out=new Map();
+      for(let i=0;i<ids.length;i+=80){
+        const {data,error}=await sb.from('docs').select('doc_id,data').eq('user_id',userId).in('doc_id',ids.slice(i,i+80));
+        if(error)throw fail();for(const r of data||[])out.set(String(r.doc_id),r.data)}
+      return out},
+    doc(path){const docId=idOf(path);return {
     async get(){const {data,error}=await sb.from('docs').select('data').eq('user_id',userId).eq('doc_id',docId).maybeSingle();
-      if(error)throw Object.assign(new Error('db'),{code:'unavailable'});return {exists:!!data,data:()=>data?data.data:undefined}},
-    async set(obj){const {error}=await sb.from('docs').upsert({user_id:userId,doc_id:docId,data:obj,updated_at:new Date().toISOString()},{onConflict:'user_id,doc_id'});
-      if(error)throw Object.assign(new Error('db'),{code:/limit reached/.test(error.message||'')?'limit':'unavailable'})},
+      if(error)throw fail();return {exists:!!data,data:()=>data?data.data:undefined}},
+    async set(obj){const iso=new Date().toISOString();
+      const {error}=await sb.from('docs').upsert({user_id:userId,doc_id:docId,data:obj,updated_at:iso},{onConflict:'user_id,doc_id'});
+      if(error)throw Object.assign(new Error('db'),{code:/limit reached/.test(error.message||'')?'limit':'unavailable'});
+      return Date.parse(iso)},
     async delete(){const {error}=await sb.from('docs').delete().eq('user_id',userId).eq('doc_id',docId);if(error)throw error}
   }}};
 }
 let syncing=false,lastSync=0;
+/* 빠른 동기화
+   - seenAt: 서버 문서마다 '마지막으로 확인한 저장 시각'
+   - idxCache: 마지막으로 본 서버의 가계부 목록 (undefined=아직 모름, null=서버에 없음)
+   앱으로 돌아올 때 먼저 '저장 시각 목록'만 받아서, 시각이 바뀐 가계부만 내용을 다시 받아요.
+   아무것도 안 바뀌었으면 가벼운 요청 1번으로 끝나요. */
+let seenAt={},idxCache;
+const SKIP={};
+const ledgerOf=docId=>String(docId).split('__')[0];
 async function syncAll(){
   if(!DB||syncing)return;syncing=true;
   try{
     syncCur();
     for(const id of Object.keys(LEDGERS))stampLedger(LEDGERS[id]); // 이 기기의 변경을 먼저 기록
-    const idx=await DB.doc(BASE+'/index').get();
+    // 1) 서버 문서들의 저장 시각만 받아와요. 실패하면 예전 방식(전부 받기)으로 해요.
+    let stamps=null;try{stamps=await DB.list()}catch(e){}
+    const srvAt={};if(stamps)for(const r of stamps)srvAt[r.id]=r.at;
+    const ledgerChanged=id=>{
+      for(const k of Object.keys(srvAt))if(ledgerOf(k)===id&&seenAt[k]!==srvAt[k])return true;
+      for(const k of Object.keys(seenAt))if(ledgerOf(k)===id&&!(k in srvAt))return true;
+      return false};
+    const docsOf=id=>Object.keys(srvAt).filter(k=>ledgerOf(k)===id);
+    // 2) 바뀐 문서만 한 번에 받아와요
+    let pre=new Map();const fetchedL=new Set();
+    if(stamps){
+      const want=new Set();
+      if('index' in srvAt&&(seenAt.index!==srvAt.index||idxCache===undefined))want.add('index');
+      const groups=new Set(Object.keys(srvAt).map(ledgerOf));groups.delete('index');
+      for(const g of groups)if(ledgerChanged(g)){fetchedL.add(g);docsOf(g).forEach(k=>want.add(k))}
+      if(want.size)pre=await DB.getMany([...want]);
+    }
+    let idxData=null;
+    if(stamps)idxData=!('index' in srvAt)?null:pre.has('index')?(pre.get('index')||{}):(idxCache===undefined?null:idxCache);
+    else{const idx=await DB.doc(BASE+'/index').get();idxData=idx.exists?(idx.data()||{}):null}
     let serverList=null,serverIU=0,serverDel={};
-    if(idx.exists&&Array.isArray((idx.data()||{}).list)){const d=idx.data();serverList=cleanIndex(d.list);serverIU=sint(d.iu,0,9e15)||0;serverDel=cleanTomb(d.del)}
+    if(idxData&&Array.isArray(idxData.list)){serverList=cleanIndex(idxData.list);serverIU=sint(idxData.iu,0,9e15)||0;serverDel=cleanTomb(idxData.del)}
+    else if(stamps){if('ledger' in srvAt)serverList=[{id:'ledger',name:'내 가계부'}]}
     else{const old=await DB.doc(BASE+'/ledger').get();if(old.exists)serverList=[{id:'ledger',name:'내 가계부'}]}
     // 가계부 목록: 양쪽을 합치고, 어느 쪽에서든 지운 가계부는 빼요. 이름이 다르면 더 최근에 바꾼 쪽을 따라요.
     const del={...serverDel};for(const [k,v] of Object.entries(DELL))if(!del[k]||v>del[k])del[k]=v;
@@ -332,10 +385,22 @@ async function syncAll(){
     DELL=cleanTomb(del);
     const pushIndex=!serverList||JSON.stringify(finalList)!==JSON.stringify(sl)||JSON.stringify(DELL)!==JSON.stringify(serverDel);
     IU=Math.max(IU,serverIU);
-    const servers=await Promise.all(finalList.map(it=>loadLedger(it.id).catch(()=>undefined)));
-    const next={};
+    let servers;
+    if(stamps){
+      // 서버에서 안 바뀌었고 이 기기에 이미 있는 가계부는 건너뛰어요
+      const skip=new Set(),need=[];
+      for(const it of finalList){if(fetchedL.has(it.id))continue;
+        if(LEDGERS[it.id]&&!ledgerChanged(it.id))skip.add(it.id);else need.push(it.id)}
+      const ids=need.flatMap(docsOf);
+      if(ids.length){const m=await DB.getMany(ids);m.forEach((v,k)=>pre.set(k,v))}
+      need.forEach(id=>fetchedL.add(id));
+      servers=finalList.map(it=>skip.has(it.id)?SKIP:ledgerFrom(it.id,pre));
+    }else servers=await Promise.all(finalList.map(it=>loadLedger(it.id).catch(()=>undefined)));
+    const next={},skipped=[];
     finalList.forEach((it,i)=>{
-      const srv=servers[i];if(srv===undefined){next[it.id]=LEDGERS[it.id]||normLedger(null);return}
+      const srv=servers[i];
+      if(srv===SKIP){next[it.id]=LEDGERS[it.id];skipped.push(it.id);return}
+      if(srv===undefined){next[it.id]=LEDGERS[it.id]||normLedger(null);return}
       const merged=mergeLedger(LEDGERS[it.id],srv);
       next[it.id]=merged;
       if(!sameLedger(merged,srv)){ // 서버가 뒤처져 있으면 합친 내용을 올려요
@@ -347,7 +412,15 @@ async function syncAll(){
         savedJSON[it.id]=JSON.stringify({cats:merged.cats,settings:merged.settings,years:merged._years,tomb:merged.tomb,mu:merged.mu,v:3});
       }
     });
+    // 받아온 문서의 저장 시각을 기억해 둬요 (다음엔 바뀐 것만 받게)
+    if(stamps){
+      pre.forEach((v,k)=>{if(k in srvAt)seenAt[k]=srvAt[k]});
+      for(const k of Object.keys(seenAt))if(!(k in srvAt)&&(k==='index'||fetchedL.has(ledgerOf(k))))delete seenAt[k];
+      idxCache=idxData;
+    }
     IDX=finalList;LEDGERS=next;
+    // 건너뛴 가계부도 이 기기에서 바뀐 게 있으면 올려요 (안 바뀐 문서는 저절로 건너뜀)
+    for(const id of skipped)writeLedger(id);
     if(pushIndex){IU=Math.max(IU,Date.now());delete savedJSON.index;writeDoc('index',{list:IDX,iu:IU,del:DELL})}
     IDX.forEach(it=>runFixedFor(it.id));
     saveLocal();
@@ -360,7 +433,7 @@ async function syncAll(){
 function writeLedgerTo(store,id){const keep=LEDGERS;LEDGERS=store;try{writeLedger(id)}finally{LEDGERS=keep}}
 async function connect(user){
   try{
-    DB=makeDB(user.id);BASE='u';
+    DB=makeDB(user.id);BASE='u';seenAt={};idxCache=undefined; // 새로 연결하면 처음엔 전부 받아요
     await syncAll();
   }catch(e){DB=null;setSync('오프라인 · 이 기기에만 저장 중')}
 }
