@@ -185,8 +185,8 @@ AI 기능(`functions/claude`)과 계정 삭제(`functions/delete-account`)는 �
 
 ### 📝 알려진 한계와 다음 작업
 
-- [ ] 계정 삭제에 쓰는 DB 함수 `delete_my_account`의 정의가 `schema.sql`에 빠져 있어요. 새 프로젝트에 배포하면 계정 삭제가 동작하지 않으니, 운영 DB에서 정의를 꺼내 추가할 예정이에요.
-- [ ] 위 보안 표 A06의 저장 한도(문서 100개·전체 5MB)와 `schema.sql`의 값(문서 500개, 문서당 1MB)이 달라요. 운영 DB 기준으로 맞출게요.
+- [x] ~~계정 삭제 함수 `delete_my_account`가 `schema.sql`에 빠져 있음~~ → 운영 DB에서 정의를 꺼내 추가했어요. (2026-11-20)
+- [x] ~~`schema.sql`의 저장 한도가 운영 DB와 다름~~ → 운영 DB 기준(문서 100개, 전체 5MB, 수정할 때도 검사)으로 맞췄어요. (2026-11-20)
 - [ ] `functions/delete-account`는 지금 화면에서 쓰지 않아요(DB 함수를 씀). 하나로 정리할 예정이에요.
 - [ ] Supabase의 예전(legacy) API 키가 2027년 초에 종료돼요. 서버 함수가 쓰는 `SUPABASE_ANON_KEY`·`SUPABASE_SERVICE_ROLE_KEY`를 새 키 방식으로 옮겨야 해요.
 - [ ] 서버 함수는 `ALLOWED_ORIGINS`가 비어 있으면 모든 출처를 허용해요. 비어 있을 때는 거부하도록 바꿀게요.
